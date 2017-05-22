@@ -6,26 +6,21 @@ const main = () => {
     attributes: {
       alpha: false
     },
-    onDone: start
+    onDone: load
   });
 };
 
-const start = (err, regl) => {
+const load = (err, regl) => {
+  loadImage('img/star.png').then(image => {
+    start(regl, image);
+  });
+};
+
+const start = (regl, starImage) => {
   const PARTICLES_SIZE = Math.floor(Math.sqrt(STAR_DATA.length / 4));
   const MAX_PARTICLES = PARTICLES_SIZE * PARTICLES_SIZE;
 
-  const particleStateInit = new Float32Array(STAR_DATA.slice(0, MAX_PARTICLES * 4));
-
-  const particleState = new Array(3).fill().map(() => {
-    return regl.framebuffer({
-      color: regl.texture({
-        shape: [PARTICLES_SIZE, PARTICLES_SIZE, 4],
-        type: 'float',
-        data: particleStateInit
-      }),
-      depthStencil: false
-    });
-  });
+  const particleState = new Float32Array(STAR_DATA.slice(0, MAX_PARTICLES * 4));
 
   const particleCoord = new Float32Array(MAX_PARTICLES * 2);
   for (let i = 0; i < MAX_PARTICLES * 2;) {
@@ -38,12 +33,11 @@ const start = (err, regl) => {
     precision highp float;
     
     attribute vec2 coord;
+    attribute vec4 state;
     
     varying vec3 color;
     
-    uniform sampler2D particleState[2];
     uniform mat4 projection, view;
-
     uniform float time;
 
     float nrand(vec2 n) {
@@ -51,14 +45,12 @@ const start = (err, regl) => {
     }
 
     void main () {
-      vec4 state0 = texture2D(particleState[0], coord);
-      vec4 state1 = texture2D(particleState[1], coord);
-      float b = state0.w * state0.w;
+      float b = state.w * state.w;
       float rc = nrand(coord);
       b *= mix(0.75, 1.0, sin(time * mix(1.0, 6.0, rc) + rc * ${Math.PI * 2}));
       color = vec3(b * 0.005);
-      gl_Position = projection * view * vec4(state0.xyz * 0.1, 1.0);
-      gl_PointSize = b * 0.02;
+      gl_Position = projection * view * vec4(state.xyz * 0.1, 1.0);
+      gl_PointSize = b * 0.2;
     }`,
 
     frag: `
@@ -67,16 +59,16 @@ const start = (err, regl) => {
     varying vec3 color;
 
     void main () {
-      gl_FragColor = vec4(color, 1.0);
+      float b = 1.0 - 2.0 * distance(vec2(0.5), gl_PointCoord);
+      gl_FragColor = b * b * b * b * vec4(color, 1.0);
     }`,
 
     attributes: {
-      coord: particleCoord
+      coord: particleCoord,
+      state: particleState
     },
 
     uniforms: {
-      'particleState[0]': () => particleState[0],
-      'particleState[1]': () => particleState[1],
       time: ({tick}) => tick / 60.0,
       view: ({tick}) => {
         const t = 0.001 * tick
@@ -92,6 +84,16 @@ const start = (err, regl) => {
           0.01,
           1000);
       }
+    },
+
+    blend: {
+      enable: true,
+      equation: 'add',
+      func: { src: 'src alpha', dst: 'one' }
+    },
+
+    depth: {
+      enable: false
     },
 
     count: MAX_PARTICLES,
