@@ -6,56 +6,53 @@ const main = () => {
     attributes: {
       alpha: false
     },
-    onDone: load
+    onDone: start
   });
 };
 
-const load = (err, regl) => {
-  loadImage('img/star.png').then(image => {
-    start(regl, image);
-  });
-};
+const start = (err, regl) => {
+  const NUM_STARS = STAR_DATA.length / 4;
 
-const start = (regl, starImage) => {
-  const PARTICLES_SIZE = Math.floor(Math.sqrt(STAR_DATA.length / 4));
-  const MAX_PARTICLES = PARTICLES_SIZE * PARTICLES_SIZE;
+  const particleStates = new Float32Array(STAR_DATA);
+  const particleIds = new Float32Array(NUM_STARS);
+  for (let i = 0; i < NUM_STARS; ++i) particleIds[i] = i;
 
-  const particleState = new Float32Array(STAR_DATA.slice(0, MAX_PARTICLES * 4));
-
-  const particleCoord = new Float32Array(MAX_PARTICLES * 2);
-  for (let i = 0; i < MAX_PARTICLES * 2;) {
-    particleCoord[i++] = (i % PARTICLES_SIZE) / PARTICLES_SIZE;
-    particleCoord[i++] = Math.floor(i / PARTICLES_SIZE) / PARTICLES_SIZE;
-  }
+  const DOME_RADIUS = 5.5;
 
   const drawParticleSprites = regl({
     vert: `
     precision highp float;
-    
-    attribute vec2 coord;
+
     attribute vec4 state;
-    
+    attribute float id;
+
     varying vec3 color;
-    
-    uniform mat4 projection, view;
-    uniform float time;
+
+    uniform mat4 projection, view, model;
+    uniform float time, radius;
 
     float nrand(vec2 n) {
       return fract(sin(dot(n.xy, vec2(12.9898, 78.233)))* 43758.5453);
     }
 
     void main () {
+      vec3 n = normalize(state.xyz);
+      vec3 p = n * radius;
+
       float b = state.w * state.w;
-      float rc = nrand(coord);
+      float rc = nrand(vec2(id, id + 1.0));
       b *= mix(0.75, 1.0, sin(time * mix(1.0, 6.0, rc) + rc * ${Math.PI * 2}));
+      b *= smoothstep(0.5, 0.6, dot(n, vec3(0.0, -1.0, 0.0)));
+
       color = vec3(b * 0.005);
-      gl_Position = projection * view * vec4(state.xyz * 0.1, 1.0);
+
+      gl_Position = projection * view * model * vec4(p, 1.0);
       gl_PointSize = b * 0.2;
     }`,
 
     frag: `
     precision highp float;
-    
+
     varying vec3 color;
 
     void main () {
@@ -64,25 +61,31 @@ const start = (regl, starImage) => {
     }`,
 
     attributes: {
-      coord: particleCoord,
-      state: particleState
+      id: particleIds,
+      state: particleStates
     },
 
     uniforms: {
-      time: ({tick}) => tick / 60.0,
-      view: ({tick}) => {
-        const t = 0.001 * tick
+      time: ({tick}) => tick / 60,
+      radius: DOME_RADIUS,
+
+      model: () => {
+        return mat4.fromTranslation([], [0, 7, 0]);
+      },
+      view: () => {
         return mat4.lookAt([],
-          [0, 0, 0],
-          [5 * Math.cos(t), 0, 5 * Math.sin(t)],
-          [0, 1, 0]);
+          [3.83257, 13.7549, 0.0],
+          [5.50758, 1.0, 0.0],
+          [0, -1, 0]);
       },
       projection: ({viewportWidth, viewportHeight}) => {
-        return mat4.perspective([],
-          Math.PI / 3,
+        const shift = mat4.fromTranslation([], [0, -1, 0]);
+        const p = mat4.perspective([],
+          38 * 2 * (Math.PI / 180),
           viewportWidth / viewportHeight,
           0.01,
-          1000);
+          100);
+        return mat4.mul([], shift, p);
       }
     },
 
@@ -96,7 +99,7 @@ const start = (regl, starImage) => {
       enable: false
     },
 
-    count: MAX_PARTICLES,
+    count: NUM_STARS,
     offset: 0,
     elements: null,
     primitive: 'points'
