@@ -41,7 +41,7 @@ const start = (err, regl) => {
   const DEPTH_DISABLED = { enable: false };
 
   const eyePos = (tick) => {
-    return [guiParams['Camera Eye X'], guiParams['Camera Eye Y'], Math.sin(tick / 120) * 0.5];
+    return [guiParams['Camera Eye X'], guiParams['Camera Eye Y'], Math.sin(tick / 120) * 2];
   }
   const eyeTargetPos = () => [guiParams['Camera Target X'], guiParams['Camera Target Y'], 0];
 
@@ -69,6 +69,10 @@ const start = (err, regl) => {
     return mat4.invert([], viewProjMatrix(ctx));
   };
 
+  const orientationMatrix = (ctx) => {
+    return mat3.fromMat4([], mat4.fromRotation([], ctx.tick / (60 * 10), [1, 0, 0]));
+  };
+
   const drawParticleSprites = regl({
     vert: `
     precision highp float;
@@ -79,6 +83,7 @@ const start = (err, regl) => {
     varying vec3 color;
 
     uniform mat4 viewProj;
+    uniform mat3 orientation;
     uniform vec3 center;
     uniform float time, radius;
 
@@ -86,8 +91,8 @@ const start = (err, regl) => {
       return fract(sin(dot(n.xy, vec2(12.9898, 78.233)))* 43758.5453);
     }
 
-    void main () {
-      vec3 n = normalize(state.xyz);
+    void main() {
+      vec3 n = orientation * normalize(state.xyz);
       vec3 p = n * radius;
 
       float b = state.w * state.w;
@@ -106,7 +111,7 @@ const start = (err, regl) => {
 
     varying vec3 color;
 
-    void main () {
+    void main() {
       float b = 1.0 - 2.0 * distance(vec2(0.5), gl_PointCoord);
       gl_FragColor = b * b * b * b * vec4(color, 1.0);
     }`,
@@ -120,7 +125,8 @@ const start = (err, regl) => {
       time: ({tick}) => tick / 60,
       radius: DOME_RADIUS,
       center: DOME_CENTER,
-      viewProj: viewProjMatrix
+      viewProj: viewProjMatrix,
+      orientation: orientationMatrix,
     },
 
     blend: BLEND_ADDITIVE,
@@ -134,6 +140,7 @@ const start = (err, regl) => {
     frag: `
     precision highp float;
 
+    uniform mat3 orientationInv;
     uniform vec3 center;
     uniform float time;
 
@@ -142,7 +149,7 @@ const start = (err, regl) => {
     #define PI ${Math.PI}
 
     void main() {
-      vec3 p = normalize(pos - center);
+      vec3 p = orientationInv * normalize(pos - center);
       vec2 a = vec2(atan(p.z, p.x) + PI, acos(dot(p, vec3(0.0, 1.0, 0.0))))
                / vec2(PI * 2.0, PI);
       vec2 grid = smoothstep(vec2(0.45), vec2(0.5), abs(fract(a * 20.0) - 0.5));
@@ -171,7 +178,8 @@ const start = (err, regl) => {
     uniforms: {
       time: ({tick}) => tick / 60,
       center: DOME_CENTER,
-      viewProj: viewProjMatrix
+      viewProj: viewProjMatrix,
+      orientationInv: ctx => mat3.invert([], orientationMatrix(ctx)),
     },
 
     blend: BLEND_ADDITIVE,
