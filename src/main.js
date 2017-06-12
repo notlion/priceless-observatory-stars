@@ -13,15 +13,22 @@ const main = () => {
 const start = (err, regl) => {
   const guiParams = {};
   const gui = new dat.GUI();
-  const guiAddParam = (k, d, r) => {
+  const guiAddFloat = (k, d, r) => {
     guiParams[k] = d;
     gui.add(guiParams, k, guiParams[k] - r, guiParams[k] + r, 0.01);
   };
-  guiAddParam('Camera FOV', 38, 10);
-  guiAddParam('Camera Eye X', 5.5, 3);
-  guiAddParam('Camera Eye Y', 1.0, 3);
-  guiAddParam('Camera Target X', 3.8, 5);
-  guiAddParam('Camera Target Y', 10, 5);
+  const guiAddBool = (k, d) => {
+    guiParams[k] = d;
+    gui.add(guiParams, k);
+  };
+  guiAddBool('Draw Dome', true);
+  guiAddBool('Draw Dome Wireframe', true);
+  guiAddFloat('Camera FOV', 38, 10);
+  guiAddFloat('Camera Eye X', 5.5, 3);
+  guiAddFloat('Camera Eye Y', 1.0, 3);
+  guiAddFloat('Camera Target X', 3.8, 5);
+  guiAddFloat('Camera Target Y', 10, 5);
+  gui.remember(guiParams);
 
   const NUM_STARS = STAR_DATA.length / 4;
 
@@ -236,7 +243,7 @@ const start = (err, regl) => {
     });
 
     drawParticleSprites();
-    drawDome();
-    drawDomeEdges();
+    if (guiParams['Draw Dome']) drawDome();
+    if (guiParams['Draw Dome Wireframe']) drawDomeEdges();
   });
 };
