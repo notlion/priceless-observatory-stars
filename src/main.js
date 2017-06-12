@@ -45,7 +45,7 @@ const start = (err, regl) => {
   const projectionMatrix = (ctx) => {
     const p = cameraProjectionMatrix(ctx);
     const t = mat4.fromTranslation([], [0, -1, 0]);
-    const s = mat4.fromScaling([], [0.75, 0.75, 1.0]);
+    const s = mat4.identity([]);//mat4.fromScaling([], [0.75, 0.75, 1.0]);
     return mat4.mul([], mat4.mul([], s, t), p);
   };
 
@@ -127,8 +127,14 @@ const start = (err, regl) => {
 
     varying vec3 pos;
 
+    #define PI ${Math.PI}
+
     void main() {
-      gl_FragColor = vec4(abs(normalize(pos - center)), 1.0);
+      vec3 p = normalize(pos - center);
+      vec2 a = vec2(atan(p.z, p.x) + PI, acos(dot(p, vec3(0.0, 1.0, 0.0))))
+               / vec2(PI * 2.0, PI);
+      vec2 grid = smoothstep(vec2(0.45), vec2(0.5), abs(fract(a * 20.0) - 0.5));
+      gl_FragColor = vec4(vec3(0.0, 0.0, 0.5 * max(grid.x, grid.y)), 1.0);
     }`,
 
     vert: `
@@ -142,8 +148,8 @@ const start = (err, regl) => {
     varying vec3 pos;
 
     void main() {
+      pos = position;
       gl_Position = viewProj * vec4(position, 1.0);
-      pos = gl_Position.xyz;
     }`,
 
     attributes: {
@@ -163,31 +169,37 @@ const start = (err, regl) => {
     primitive: 'triangles'
   });
 
+  const COLOR_FRAG = `
+  precision highp float;
+
+  uniform vec4 color;
+
+  void main() {
+    gl_FragColor = color;
+  }`;
+
+  const COLOR_VERT = `
+  precision highp float;
+
+  uniform mat4 matrix;
+
+  attribute vec3 position;
+
+  void main() {
+    gl_Position = matrix * vec4(position, 1.0);
+  }`;
+
   const drawDomeEdges = regl({
-    frag: `
-    precision highp float;
-
-    void main() {
-      gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);
-    }`,
-
-    vert: `
-    precision highp float;
-
-    uniform mat4 viewProj;
-
-    attribute vec3 position;
-
-    void main() {
-      gl_Position = viewProj * vec4(position, 1.0);
-    }`,
+    frag: COLOR_FRAG,
+    vert: COLOR_VERT,
 
     attributes: {
       position: DOME_MESH.vertices
     },
 
     uniforms: {
-      viewProj: viewProjMatrix
+      matrix: viewProjMatrix,
+      color: [0, 1, 0, 1]
     },
 
     blend: BLEND_ADDITIVE,
