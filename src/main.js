@@ -70,7 +70,7 @@ const start = (err, regl) => {
   };
 
   const orientationMatrix = (ctx) => {
-    return mat3.fromMat4([], mat4.fromRotation([], ctx.tick / (60 * 10), [1, 0, 0]));
+    return mat3.fromMat4([], mat4.fromRotation([], ctx.tick / (60 * 10), [1, 0.2, 0.05]));
   };
 
   const drawParticleSprites = regl({
