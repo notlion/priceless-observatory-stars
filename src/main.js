@@ -18,6 +18,44 @@ const start = (err, regl) => {
   for (let i = 0; i < NUM_STARS; ++i) particleIds[i] = i;
 
   const DOME_RADIUS = 5.5;
+  const DOME_CENTER = [0, 7, 0];
+
+  const BLEND_ADDITIVE = {
+    enable: true,
+    equation: 'add',
+    func: { src: 'src alpha', dst: 'one' }
+  };
+
+  const DEPTH_DISABLED = { enable: false };
+
+  const eyePos = (tick) => {
+    return [5.5, 1.0, Math.sin(tick / 120) * 0.5];
+  }
+  const eyeTargetPos = [3.8, 10, 0.0];
+
+  const viewMatrix = ({tick}) => {
+    return mat4.lookAt([], eyePos(tick), eyeTargetPos, [-1, 0, 0]);
+  };
+
+  const cameraFOV = 38 * (Math.PI / 180);
+  const cameraProjectionMatrix = (ctx) => {
+    return mat4.perspective([], cameraFOV, ctx.viewportWidth / ctx.viewportHeight, 0.01, 100);
+  };
+
+  const projectionMatrix = (ctx) => {
+    const p = cameraProjectionMatrix(ctx);
+    const t = mat4.fromTranslation([], [0, -1, 0]);
+    const s = mat4.fromScaling([], [0.75, 0.75, 1.0]);
+    return mat4.mul([], mat4.mul([], s, t), p);
+  };
+
+  const viewProjMatrix = (ctx) => {
+    return mat4.mul([], projectionMatrix(ctx), viewMatrix(ctx));
+  };
+
+  const viewProjInvMatrix = (ctx) => {
+    return mat4.invert([], viewProjMatrix(ctx));
+  };
 
   const drawParticleSprites = regl({
     vert: `
@@ -28,7 +66,8 @@ const start = (err, regl) => {
 
     varying vec3 color;
 
-    uniform mat4 projection, view, model;
+    uniform mat4 viewProj;
+    uniform vec3 center;
     uniform float time, radius;
 
     float nrand(vec2 n) {
@@ -41,12 +80,12 @@ const start = (err, regl) => {
 
       float b = state.w * state.w;
       float rc = nrand(vec2(id, id + 1.0));
-      b *= mix(0.75, 1.0, sin(time * mix(1.0, 6.0, rc) + rc * ${Math.PI * 2}));
-      b *= smoothstep(0.5, 0.6, dot(n, vec3(0.0, -1.0, 0.0)));
+      b *= mix(0.9, 1.0, sin(time * mix(1.0, 10.0, rc) + rc * ${Math.PI * 2}));
+      b *= smoothstep(0.5, 0.6, dot(n, vec3(0.0, 1.0, 0.0)));
 
       color = vec3(b * 0.005);
 
-      gl_Position = projection * view * model * vec4(p, 1.0);
+      gl_Position = viewProj * vec4(center + p, 1.0);
       gl_PointSize = b * 0.2;
     }`,
 
@@ -68,41 +107,94 @@ const start = (err, regl) => {
     uniforms: {
       time: ({tick}) => tick / 60,
       radius: DOME_RADIUS,
-
-      model: () => {
-        return mat4.fromTranslation([], [0, 7, 0]);
-      },
-      view: () => {
-        return mat4.lookAt([],
-          [3.83257, 13.7549, 0.0],
-          [5.50758, 1.0, 0.0],
-          [0, -1, 0]);
-      },
-      projection: ({viewportWidth, viewportHeight}) => {
-        const shift = mat4.fromTranslation([], [0, -1, 0]);
-        const p = mat4.perspective([],
-          38 * 2 * (Math.PI / 180),
-          viewportWidth / viewportHeight,
-          0.01,
-          100);
-        return mat4.mul([], shift, p);
-      }
+      center: DOME_CENTER,
+      viewProj: viewProjMatrix
     },
 
-    blend: {
-      enable: true,
-      equation: 'add',
-      func: { src: 'src alpha', dst: 'one' }
-    },
-
-    depth: {
-      enable: false
-    },
+    blend: BLEND_ADDITIVE,
+    depth: { enable: false },
 
     count: NUM_STARS,
-    offset: 0,
-    elements: null,
     primitive: 'points'
+  });
+
+  const drawDome = regl({
+    frag: `
+    precision highp float;
+
+    uniform vec3 center;
+    uniform float time;
+
+    varying vec3 pos;
+
+    void main() {
+      gl_FragColor = vec4(abs(normalize(pos - center)), 1.0);
+    }`,
+
+    vert: `
+    precision highp float;
+
+    uniform mat4 viewProj;
+    uniform float time;
+
+    attribute vec3 position;
+
+    varying vec3 pos;
+
+    void main() {
+      gl_Position = viewProj * vec4(position, 1.0);
+      pos = gl_Position.xyz;
+    }`,
+
+    attributes: {
+      position: DOME_MESH.vertices
+    },
+
+    uniforms: {
+      time: ({tick}) => tick / 60,
+      center: DOME_CENTER,
+      viewProj: viewProjMatrix
+    },
+
+    blend: BLEND_ADDITIVE,
+    depth: DEPTH_DISABLED,
+
+    elements: DOME_MESH.triangleIndices,
+    primitive: 'triangles'
+  });
+
+  const drawDomeEdges = regl({
+    frag: `
+    precision highp float;
+
+    void main() {
+      gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);
+    }`,
+
+    vert: `
+    precision highp float;
+
+    uniform mat4 viewProj;
+
+    attribute vec3 position;
+
+    void main() {
+      gl_Position = viewProj * vec4(position, 1.0);
+    }`,
+
+    attributes: {
+      position: DOME_MESH.vertices
+    },
+
+    uniforms: {
+      viewProj: viewProjMatrix
+    },
+
+    blend: BLEND_ADDITIVE,
+    depth: DEPTH_DISABLED,
+
+    elements: DOME_MESH.edgeIndices,
+    primitive: 'lines'
   });
 
   regl.frame(() => {
@@ -112,5 +204,7 @@ const start = (err, regl) => {
     });
 
     drawParticleSprites();
+    drawDome();
+    drawDomeEdges();
   });
 };
