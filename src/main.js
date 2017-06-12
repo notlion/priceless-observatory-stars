@@ -11,6 +11,18 @@ const main = () => {
 };
 
 const start = (err, regl) => {
+  const guiParams = {};
+  const gui = new dat.GUI();
+  const guiAddParam = (k, d, r) => {
+    guiParams[k] = d;
+    gui.add(guiParams, k, guiParams[k] - r, guiParams[k] + r, 0.01);
+  };
+  guiAddParam('Camera FOV', 38, 10);
+  guiAddParam('Camera Eye X', 5.5, 3);
+  guiAddParam('Camera Eye Y', 1.0, 3);
+  guiAddParam('Camera Target X', 3.8, 5);
+  guiAddParam('Camera Target Y', 10, 5);
+
   const NUM_STARS = STAR_DATA.length / 4;
 
   const particleStates = new Float32Array(STAR_DATA);
@@ -29,17 +41,17 @@ const start = (err, regl) => {
   const DEPTH_DISABLED = { enable: false };
 
   const eyePos = (tick) => {
-    return [5.5, 1.0, Math.sin(tick / 120) * 0.5];
+    return [guiParams['Camera Eye X'], guiParams['Camera Eye Y'], Math.sin(tick / 120) * 0.5];
   }
-  const eyeTargetPos = [3.8, 10, 0.0];
+  const eyeTargetPos = () => [guiParams['Camera Target X'], guiParams['Camera Target Y'], 0];
 
   const viewMatrix = ({tick}) => {
-    return mat4.lookAt([], eyePos(tick), eyeTargetPos, [-1, 0, 0]);
+    return mat4.lookAt([], eyePos(tick), eyeTargetPos(), [-1, 0, 0]);
   };
 
-  const cameraFOV = 38 * (Math.PI / 180);
+  const cameraFOV = () => guiParams['Camera FOV'] * (Math.PI / 180);
   const cameraProjectionMatrix = (ctx) => {
-    return mat4.perspective([], cameraFOV, ctx.viewportWidth / ctx.viewportHeight, 0.01, 100);
+    return mat4.perspective([], cameraFOV(), ctx.viewportWidth / ctx.viewportHeight, 0.01, 100);
   };
 
   const projectionMatrix = (ctx) => {
