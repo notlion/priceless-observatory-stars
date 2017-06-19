@@ -26,8 +26,12 @@ const start = (err, regl) => {
   guiAddFloat('Camera FOV', 38, 10);
   guiAddFloat('Camera Eye X', 5.5, 3);
   guiAddFloat('Camera Eye Y', 1.0, 3);
+  guiAddFloat('Camera Eye Z', 0.0, 3);
   guiAddFloat('Camera Target X', 3.8, 5);
-  guiAddFloat('Camera Target Y', 10, 5);
+  guiAddFloat('Camera Target Y', 10.0, 5);
+  guiAddFloat('Camera Target Z', 0.0, 5);
+  guiAddFloat('Dome Rotation Y', 0.0, 180);
+  guiAddFloat('Demo Mode-ness', 1, 1);
   gui.remember(guiParams);
 
   const NUM_STARS = STAR_DATA.length / 4;
@@ -48,9 +52,13 @@ const start = (err, regl) => {
   const DEPTH_DISABLED = { enable: false };
 
   const eyePos = (tick) => {
-    return [guiParams['Camera Eye X'], guiParams['Camera Eye Y'], Math.sin(tick / 120) * 2];
+    return [guiParams['Camera Eye X'], 
+            guiParams['Camera Eye Y'], 
+            guiParams['Camera Eye Z'] + guiParams['Demo Mode-ness'] * Math.sin(tick / 120) * 2];
   }
-  const eyeTargetPos = () => [guiParams['Camera Target X'], guiParams['Camera Target Y'], 0];
+  const eyeTargetPos = () => [guiParams['Camera Target X'], 
+                              guiParams['Camera Target Y'],
+                              guiParams['Camera Target Z']];
 
   const viewMatrix = ({tick}) => {
     return mat4.lookAt([], eyePos(tick), eyeTargetPos(), [-1, 0, 0]);
@@ -64,7 +72,7 @@ const start = (err, regl) => {
   const projectionMatrix = (ctx) => {
     const p = cameraProjectionMatrix(ctx);
     const t = mat4.fromTranslation([], [0, -1, 0]);
-    const s = mat4.identity([]);//mat4.fromScaling([], [0.75, 0.75, 1.0]);
+    const s = mat4.identity([]); // mat4.fromScaling([], [0.75, 0.75, 1.0]);
     return mat4.mul([], mat4.mul([], s, t), p);
   };
 
@@ -80,6 +88,14 @@ const start = (err, regl) => {
     return mat3.fromMat4([], mat4.fromRotation([], ctx.tick / (60 * 10), [1, 0.2, 0.05]));
   };
 
+  const modelMatrix = (ctx) => {
+    return mat4.fromRotation([], guiParams['Dome Rotation Y'] * (Math.PI / 180), [0, 1, 0]);
+  };
+
+  const modelViewProjMatrix = (ctx) => {
+    return mat4.mul([], viewProjMatrix(ctx), modelMatrix(ctx));
+  };
+
   const drawParticleSprites = regl({
     vert: `
     precision highp float;
@@ -89,10 +105,10 @@ const start = (err, regl) => {
 
     varying vec3 color;
 
-    uniform mat4 viewProj;
+    uniform mat4 modelViewProj;
     uniform mat3 orientation;
     uniform vec3 center;
-    uniform float time, radius;
+    uniform float time, radius, pointScale;
 
     float nrand(vec2 n) {
       return fract(sin(dot(n.xy, vec2(12.9898, 78.233)))* 43758.5453);
@@ -109,8 +125,8 @@ const start = (err, regl) => {
 
       color = vec3(b * 0.005);
 
-      gl_Position = viewProj * vec4(center + p, 1.0);
-      gl_PointSize = b * 0.2;
+      gl_Position = modelViewProj * vec4(center + p, 1.0);
+      gl_PointSize = b * pointScale;
     }`,
 
     frag: `
@@ -130,9 +146,10 @@ const start = (err, regl) => {
 
     uniforms: {
       time: ({tick}) => tick / 60,
+      pointScale: ({pixelRatio}) => pixelRatio * 0.2,
       radius: DOME_RADIUS,
       center: DOME_CENTER,
-      viewProj: viewProjMatrix,
+      modelViewProj: viewProjMatrix,
       orientation: orientationMatrix,
     },
 
@@ -166,7 +183,7 @@ const start = (err, regl) => {
     vert: `
     precision highp float;
 
-    uniform mat4 viewProj;
+    uniform mat4 modelViewProj;
     uniform float time;
 
     attribute vec3 position;
@@ -175,7 +192,7 @@ const start = (err, regl) => {
 
     void main() {
       pos = position;
-      gl_Position = viewProj * vec4(position, 1.0);
+      gl_Position = modelViewProj * vec4(position, 1.0);
     }`,
 
     attributes: {
@@ -185,7 +202,7 @@ const start = (err, regl) => {
     uniforms: {
       time: ({tick}) => tick / 60,
       center: DOME_CENTER,
-      viewProj: viewProjMatrix,
+      modelViewProj: modelViewProjMatrix,
       orientationInv: ctx => mat3.invert([], orientationMatrix(ctx)),
     },
 
@@ -225,7 +242,7 @@ const start = (err, regl) => {
     },
 
     uniforms: {
-      matrix: viewProjMatrix,
+      matrix: modelViewProjMatrix,
       color: [0, 1, 0, 1]
     },
 
