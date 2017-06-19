@@ -10,6 +10,21 @@ const main = () => {
   });
 };
 
+const loadTexture = (regl, url) => {
+  const img = new Image();
+  img.src = url;
+
+  let tex = regl.texture({ data: null, width: 1, height: 1 });
+  img.addEventListener('load', () => {
+    tex = regl.texture({
+      data: img,
+      min: 'linear',
+      mag: 'linear',
+    });
+  });
+  return () => tex;
+};
+
 const start = (err, regl) => {
   const guiParams = {};
   const gui = new dat.GUI();
@@ -43,6 +58,8 @@ const start = (err, regl) => {
   const DOME_RADIUS = 5.5;
   const DOME_CENTER = [0, 7, 0];
 
+  const visibleSkyTexture = loadTexture(regl, 'img/stars_visible_4096.png');
+
   const BLEND_ADDITIVE = {
     enable: true,
     equation: 'add',
@@ -52,11 +69,11 @@ const start = (err, regl) => {
   const DEPTH_DISABLED = { enable: false };
 
   const eyePos = (tick) => {
-    return [guiParams['Camera Eye X'], 
-            guiParams['Camera Eye Y'], 
+    return [guiParams['Camera Eye X'],
+            guiParams['Camera Eye Y'],
             guiParams['Camera Eye Z'] + guiParams['Demo Mode-ness'] * Math.sin(tick / 120) * 2];
   }
-  const eyeTargetPos = () => [guiParams['Camera Target X'], 
+  const eyeTargetPos = () => [guiParams['Camera Target X'],
                               guiParams['Camera Target Y'],
                               guiParams['Camera Target Z']];
 
@@ -85,7 +102,7 @@ const start = (err, regl) => {
   };
 
   const orientationMatrix = (ctx) => {
-    return mat3.fromMat4([], mat4.fromRotation([], ctx.tick / (60 * 10), [1, 0.2, 0.05]));
+    return mat3.fromMat4([], mat4.fromRotation([], ctx.tick / (60 * 10), [0, 0, 1]));
   };
 
   const modelMatrix = (ctx) => {
@@ -167,6 +184,7 @@ const start = (err, regl) => {
     uniform mat3 orientationInv;
     uniform vec3 center;
     uniform float time;
+    uniform sampler2D visibleSkyTex;
 
     varying vec3 pos;
 
@@ -177,7 +195,11 @@ const start = (err, regl) => {
       vec2 a = vec2(atan(p.z, p.x) + PI, acos(dot(p, vec3(0.0, 1.0, 0.0))))
                / vec2(PI * 2.0, PI);
       vec2 grid = smoothstep(vec2(0.45), vec2(0.5), abs(fract(a * 20.0) - 0.5));
-      gl_FragColor = vec4(vec3(0.0, 0.0, 0.5 * max(grid.x, grid.y)), 1.0);
+
+      vec3 c = 0.5 * max(grid.x, grid.y) * mix(vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, 1.0), a.y);
+      c += texture2D(visibleSkyTex, a).rgb;
+
+      gl_FragColor = vec4(c, 1.0);
     }`,
 
     vert: `
@@ -202,6 +224,7 @@ const start = (err, regl) => {
     uniforms: {
       time: ({tick}) => tick / 60,
       center: DOME_CENTER,
+      visibleSkyTex: visibleSkyTexture,
       modelViewProj: modelViewProjMatrix,
       orientationInv: ctx => mat3.invert([], orientationMatrix(ctx)),
     },
@@ -259,7 +282,7 @@ const start = (err, regl) => {
       depth: 1
     });
 
-    drawParticleSprites();
+    // drawParticleSprites();
     if (guiParams['Draw Dome']) drawDome();
     if (guiParams['Draw Dome Wireframe']) drawDomeEdges();
   });
