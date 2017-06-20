@@ -30,14 +30,17 @@ const start = (err, regl) => {
   const gui = new dat.GUI();
   const guiAddFloat = (k, d, r) => {
     guiParams[k] = d;
-    gui.add(guiParams, k, guiParams[k] - r, guiParams[k] + r, 0.01);
+    if (r !== undefined)
+      gui.add(guiParams, k, d - r, d + r, 0.01);
+    else
+      gui.add(guiParams, k, d);
   };
   const guiAddBool = (k, d) => {
     guiParams[k] = d;
     gui.add(guiParams, k);
   };
-  guiAddBool('Draw Dome', true);
-  guiAddBool('Draw Dome Wireframe', true);
+  guiAddBool('Draw Sphere', false);
+  guiAddBool('Draw Dome Wireframe', false);
   guiAddFloat('Camera FOV', 38, 10);
   guiAddFloat('Camera Eye X', 5.5, 3);
   guiAddFloat('Camera Eye Y', 1.0, 3);
@@ -46,8 +49,13 @@ const start = (err, regl) => {
   guiAddFloat('Camera Target Y', 10.0, 5);
   guiAddFloat('Camera Target Z', 0.0, 5);
   guiAddFloat('Dome Rotation Y', 0.0, 180);
-  guiAddFloat('Demo Mode-ness', 1, 1);
+  guiAddFloat('Time Days', 0.1);
   gui.remember(guiParams);
+
+  const EARTH_EQUATORIAL_REVOLUTIONS_PER_DAY = 1.0027378;
+  const EARTH_OBLIQUITY = 0.4093;
+  const BELDEN_LAT = 40.005997;
+  const BELDEN_LON = -121.249132;
 
   const NUM_STARS = STAR_DATA.length / 4;
 
@@ -71,7 +79,7 @@ const start = (err, regl) => {
   const eyePos = (tick) => {
     return [guiParams['Camera Eye X'],
             guiParams['Camera Eye Y'],
-            guiParams['Camera Eye Z'] + guiParams['Demo Mode-ness'] * Math.sin(tick / 120) * 2];
+            guiParams['Camera Eye Z']];
   }
   const eyeTargetPos = () => [guiParams['Camera Target X'],
                               guiParams['Camera Target Y'],
@@ -89,8 +97,7 @@ const start = (err, regl) => {
   const projectionMatrix = (ctx) => {
     const p = cameraProjectionMatrix(ctx);
     const t = mat4.fromTranslation([], [0, -1, 0]);
-    const s = mat4.identity([]); // mat4.fromScaling([], [0.75, 0.75, 1.0]);
-    return mat4.mul([], mat4.mul([], s, t), p);
+    return mat4.mul([], t, p);
   };
 
   const viewProjMatrix = (ctx) => {
@@ -102,7 +109,10 @@ const start = (err, regl) => {
   };
 
   const orientationMatrix = (ctx) => {
-    return mat3.fromMat4([], mat4.fromRotation([], ctx.tick / (60 * 10), [0, 0, 1]));
+    const days = guiParams['Time Days'];
+    const equatorialAngle = EARTH_EQUATORIAL_REVOLUTIONS_PER_DAY * days * Math.PI * 2;
+    const equatorial = mat4.fromRotation([], equatorialAngle, [0, 1, 0]);
+    return mat3.fromMat4([], equatorial);
   };
 
   const modelMatrix = (ctx) => {
@@ -184,6 +194,7 @@ const start = (err, regl) => {
     uniform mat3 orientationInv;
     uniform vec3 center;
     uniform float time;
+    uniform bool drawSphere;
     uniform sampler2D visibleSkyTex;
 
     varying vec3 pos;
@@ -196,8 +207,9 @@ const start = (err, regl) => {
                / vec2(PI * 2.0, PI);
       vec2 grid = smoothstep(vec2(0.45), vec2(0.5), abs(fract(a * 20.0) - 0.5));
 
-      vec3 c = 0.5 * max(grid.x, grid.y) * mix(vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, 1.0), a.y);
-      c += texture2D(visibleSkyTex, a).rgb;
+      vec3 c = texture2D(visibleSkyTex, a).rgb;
+      if (drawSphere)
+        c += 0.5 * max(grid.x, grid.y) * mix(vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, 1.0), a.y);
 
       gl_FragColor = vec4(c, 1.0);
     }`,
@@ -224,6 +236,7 @@ const start = (err, regl) => {
     uniforms: {
       time: ({tick}) => tick / 60,
       center: DOME_CENTER,
+      drawSphere: () => guiParams['Draw Sphere'],
       visibleSkyTex: visibleSkyTexture,
       modelViewProj: modelViewProjMatrix,
       orientationInv: ctx => mat3.invert([], orientationMatrix(ctx)),
@@ -283,7 +296,7 @@ const start = (err, regl) => {
     });
 
     // drawParticleSprites();
-    if (guiParams['Draw Dome']) drawDome();
+    drawDome();
     if (guiParams['Draw Dome Wireframe']) drawDomeEdges();
   });
 };
