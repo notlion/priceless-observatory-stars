@@ -1,3 +1,8 @@
+const EARTH_EQUATORIAL_REVOLUTIONS_PER_DAY = 1.0027378;
+const EARTH_OBLIQUITY = 0.4093;
+const BELDEN_LAT = 40.005997;
+const BELDEN_LON = -121.249132;
+
 const main = () => {
   createREGL({
     extensions: [
@@ -26,32 +31,39 @@ const loadTexture = (regl, url) => {
 };
 
 const start = (err, regl) => {
-  const guiParams = {};
+  const params = {
+    drawParticles: false,
+    drawSphere: false,
+    drawDomeWireframe: false,
+    cameraFOV: 38,
+    cameraEyeX: 5.5,
+    cameraEyeY: 1.0,
+    cameraEyeZ: 0.0,
+    cameraTargetX: 3.8,
+    cameraTargetY: 10.0,
+    cameraTargetZ: 0.0,
+    domeRotationY: 0.0,
+    timeDays: 0.1,
+    latitude: BELDEN_LAT,
+    longitude: BELDEN_LON,
+  };
   const gui = new dat.GUI();
-  const guiAddFloat = (k, d, r) => {
-    guiParams[k] = d;
-    if (r !== undefined)
-      gui.add(guiParams, k, d - r, d + r, 0.01);
-    else
-      gui.add(guiParams, k, d);
-  };
-  const guiAddBool = (k, d) => {
-    guiParams[k] = d;
-    gui.add(guiParams, k);
-  };
-  guiAddBool('Draw Particles', false);
-  guiAddBool('Draw Sphere', false);
-  guiAddBool('Draw Dome Wireframe', false);
-  guiAddFloat('Camera FOV', 38, 10);
-  guiAddFloat('Camera Eye X', 5.5, 3);
-  guiAddFloat('Camera Eye Y', 1.0, 3);
-  guiAddFloat('Camera Eye Z', 0.0, 3);
-  guiAddFloat('Camera Target X', 3.8, 5);
-  guiAddFloat('Camera Target Y', 10.0, 5);
-  guiAddFloat('Camera Target Z', 0.0, 5);
-  guiAddFloat('Dome Rotation Y', 0.0, 180);
-  guiAddFloat('Time Days', 0.1);
-  gui.remember(guiParams);
+  gui.useLocalStorage = true;
+  gui.remember(params);
+  gui.add(params, 'drawParticles');
+  gui.add(params, 'drawSphere');
+  gui.add(params, 'drawDomeWireframe');
+  gui.add(params, 'cameraFOV', 10, 50);
+  gui.add(params, 'cameraEyeX');
+  gui.add(params, 'cameraEyeY');
+  gui.add(params, 'cameraEyeZ');
+  gui.add(params, 'cameraTargetX');
+  gui.add(params, 'cameraTargetY');
+  gui.add(params, 'cameraTargetZ');
+  gui.add(params, 'domeRotationY');
+  gui.add(params, 'timeDays');
+  gui.add(params, 'latitude');
+  gui.add(params, 'longitude');
 
   const dateRegex = /(\d+)\/(\d+)\/(\d+) (\d+)/;
 
@@ -66,11 +78,6 @@ const start = (err, regl) => {
     ws.onclose = () => setTimeout(() => startConnection(), 1);
   };
   startConnection();
-
-  const EARTH_EQUATORIAL_REVOLUTIONS_PER_DAY = 1.0027378;
-  const EARTH_OBLIQUITY = 0.4093;
-  const BELDEN_LAT = 40.005997;
-  const BELDEN_LON = -121.249132;
 
   const NUM_STARS = STAR_DATA.length / 4;
 
@@ -92,19 +99,19 @@ const start = (err, regl) => {
   const DEPTH_DISABLED = { enable: false };
 
   const eyePos = (tick) => {
-    return [guiParams['Camera Eye X'],
-            guiParams['Camera Eye Y'],
-            guiParams['Camera Eye Z']];
+    return [params.cameraEyeX,
+            params.cameraEyeY,
+            params.cameraEyeZ];
   }
-  const eyeTargetPos = () => [guiParams['Camera Target X'],
-                              guiParams['Camera Target Y'],
-                              guiParams['Camera Target Z']];
+  const eyeTargetPos = () => [params.cameraTargetX,
+                              params.cameraTargetY,
+                              params.cameraTargetZ];
 
   const viewMatrix = ({tick}) => {
     return mat4.lookAt([], eyePos(tick), eyeTargetPos(), [-1, 0, 0]);
   };
 
-  const cameraFOV = () => guiParams['Camera FOV'] * (Math.PI / 180);
+  const cameraFOV = () => params.cameraFOV * (Math.PI / 180);
   const cameraProjectionMatrix = (ctx) => {
     return mat4.perspective([], cameraFOV(), ctx.viewportWidth / ctx.viewportHeight, 0.01, 100);
   };
@@ -124,14 +131,14 @@ const start = (err, regl) => {
   };
 
   const orientationMatrix = (ctx) => {
-    const days = guiParams['Time Days'];
+    const days = params.timeDays;
     const equatorialAngle = EARTH_EQUATORIAL_REVOLUTIONS_PER_DAY * days * Math.PI * 2;
     const equatorial = mat4.fromRotation([], equatorialAngle, [0, 1, 0]);
     return mat3.fromMat4([], equatorial);
   };
 
   const modelMatrix = (ctx) => {
-    return mat4.fromRotation([], guiParams['Dome Rotation Y'] * (Math.PI / 180), [0, 1, 0]);
+    return mat4.fromRotation([], params.domeRotationY * (Math.PI / 180), [0, 1, 0]);
   };
 
   const modelViewProjMatrix = (ctx) => {
@@ -217,14 +224,16 @@ const start = (err, regl) => {
     #define PI ${Math.PI}
 
     void main() {
+      const vec2 EQUIRECT_RAD_TO_UNIT = 1.0 / vec2(PI * 2.0, PI);
+
       vec3 p = orientationInv * normalize(pos - center);
-      vec2 a = vec2(atan(p.z, p.x) + PI, acos(dot(p, vec3(0.0, 1.0, 0.0))))
-               / vec2(PI * 2.0, PI);
+      vec2 a = EQUIRECT_RAD_TO_UNIT * vec2(atan(p.z, p.x) + PI, acos(dot(p, vec3(0.0, 1.0, 0.0))));
       vec2 grid = smoothstep(vec2(0.45), vec2(0.5), abs(fract(a * 20.0) - 0.5));
 
       vec3 c = texture2D(visibleSkyTex, a).rgb;
-      if (drawSphere)
+      if (drawSphere) {
         c += 0.5 * max(grid.x, grid.y) * mix(vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, 1.0), a.y);
+      }
 
       gl_FragColor = vec4(c, 1.0);
     }`,
@@ -232,7 +241,7 @@ const start = (err, regl) => {
     vert: `
     precision highp float;
 
-    uniform mat4 modelViewProj;
+    uniform mat4 model, modelViewProj;
     uniform float time;
 
     attribute vec3 position;
@@ -240,7 +249,7 @@ const start = (err, regl) => {
     varying vec3 pos;
 
     void main() {
-      pos = position;
+      pos = vec3(model * vec4(position, 1.0));
       gl_Position = modelViewProj * vec4(position, 1.0);
     }`,
 
@@ -251,8 +260,9 @@ const start = (err, regl) => {
     uniforms: {
       time: ({tick}) => tick / 60,
       center: DOME_CENTER,
-      drawSphere: () => guiParams['Draw Sphere'],
+      drawSphere: () => params.drawSphere,
       visibleSkyTex: visibleSkyTexture,
+      model: modelMatrix,
       modelViewProj: modelViewProjMatrix,
       orientationInv: ctx => mat3.invert([], orientationMatrix(ctx)),
     },
@@ -311,7 +321,7 @@ const start = (err, regl) => {
     });
 
     drawDome();
-    if (guiParams['Draw Particles']) drawParticleSprites();
-    if (guiParams['Draw Dome Wireframe']) drawDomeEdges();
+    if (params.drawParticles) drawParticleSprites();
+    if (params.drawDomeWireframe) drawDomeEdges();
   });
 };
