@@ -3,6 +3,26 @@ const EARTH_OBLIQUITY = 0.4093;
 const BELDEN_LAT = 40.005997;
 const BELDEN_LON = -121.249132;
 
+const DEG_TO_RAD = Math.PI / 180;
+
+const params = {
+  drawParticles: false,
+  drawSphere: false,
+  drawDomeWireframe: false,
+  cameraFOV: 38,
+  cameraEyeX: 5.5,
+  cameraEyeY: 1.0,
+  cameraEyeZ: 0.0,
+  cameraTargetX: 3.8,
+  cameraTargetY: 10.0,
+  cameraTargetZ: 0.0,
+  domeRotationY: 0.0,
+  skyRotationY: 0.0,
+  timeDays: 0.1,
+  latitude: BELDEN_LAT,
+  longitude: BELDEN_LON,
+};
+
 const main = () => {
   createREGL({
     extensions: [
@@ -31,22 +51,6 @@ const loadTexture = (regl, url) => {
 };
 
 const start = (err, regl) => {
-  const params = {
-    drawParticles: false,
-    drawSphere: false,
-    drawDomeWireframe: false,
-    cameraFOV: 38,
-    cameraEyeX: 5.5,
-    cameraEyeY: 1.0,
-    cameraEyeZ: 0.0,
-    cameraTargetX: 3.8,
-    cameraTargetY: 10.0,
-    cameraTargetZ: 0.0,
-    domeRotationY: 0.0,
-    timeDays: 0.1,
-    latitude: BELDEN_LAT,
-    longitude: BELDEN_LON,
-  };
   const gui = new dat.GUI();
   gui.useLocalStorage = true;
   gui.remember(params);
@@ -61,11 +65,14 @@ const start = (err, regl) => {
   gui.add(params, 'cameraTargetY');
   gui.add(params, 'cameraTargetZ');
   gui.add(params, 'domeRotationY');
-  gui.add(params, 'timeDays');
+  gui.add(params, 'skyRotationY');
   gui.add(params, 'latitude');
   gui.add(params, 'longitude');
+  gui.add(params, 'timeDays');
 
   const dateRegex = /(\d+)\/(\d+)\/(\d+) (\d+)/;
+
+  let timeDaysInterp = params.timeDays;
 
   const setDateString = date => {
     // sample date: "9/23/2007 1730"
@@ -111,7 +118,7 @@ const start = (err, regl) => {
     return mat4.lookAt([], eyePos(tick), eyeTargetPos(), [-1, 0, 0]);
   };
 
-  const cameraFOV = () => params.cameraFOV * (Math.PI / 180);
+  const cameraFOV = () => params.cameraFOV * DEG_TO_RAD;
   const cameraProjectionMatrix = (ctx) => {
     return mat4.perspective([], cameraFOV(), ctx.viewportWidth / ctx.viewportHeight, 0.01, 100);
   };
@@ -131,14 +138,19 @@ const start = (err, regl) => {
   };
 
   const orientationMatrix = (ctx) => {
-    const days = params.timeDays;
-    const equatorialAngle = EARTH_EQUATORIAL_REVOLUTIONS_PER_DAY * days * Math.PI * 2;
+    const equatorialAngle = EARTH_EQUATORIAL_REVOLUTIONS_PER_DAY * -timeDaysInterp * Math.PI * 2;
     const equatorial = mat4.fromRotation([], equatorialAngle, [0, 1, 0]);
-    return mat3.fromMat4([], equatorial);
+
+    const povAngle = (90 - params.latitude) * DEG_TO_RAD;
+    const pov = mat4.fromRotation([], povAngle, [0, 0, 1]);
+
+    const north = mat4.fromRotation([], params.skyRotationY * DEG_TO_RAD, [0, 1, 0]);
+
+    return mat3.fromMat4([], mat4.mul([], north, mat4.mul([], pov, equatorial)));
   };
 
   const modelMatrix = (ctx) => {
-    return mat4.fromRotation([], params.domeRotationY * (Math.PI / 180), [0, 1, 0]);
+    return mat4.fromRotation([], params.domeRotationY * DEG_TO_RAD, [0, 1, 0]);
   };
 
   const modelViewProjMatrix = (ctx) => {
@@ -319,6 +331,8 @@ const start = (err, regl) => {
       color: () => [0, 0, 0, 1],
       depth: 1
     });
+
+    timeDaysInterp = timeDaysInterp + (params.timeDays - timeDaysInterp) * 0.1;
 
     drawDome();
     if (params.drawParticles) drawParticleSprites();
