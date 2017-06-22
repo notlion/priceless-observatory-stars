@@ -53,6 +53,20 @@ const start = (err, regl) => {
   guiAddFloat('Time Days', 0.1);
   gui.remember(guiParams);
 
+  const dateRegex = /(\d+)\/(\d+)\/(\d+) (\d+)/;
+
+  const setDateString = date => {
+    // sample date: "9/23/2007 1730"
+    console.log(dateRegex.exec(date));
+  };
+
+  const startConnection = () => {
+    const ws = new WebSocket("ws://localhost:8080");
+    ws.onmessage = event => setDateString(event.data);
+    ws.onclose = () => setTimeout(() => startConnection(), 1);
+  };
+  startConnection();
+
   const EARTH_EQUATORIAL_REVOLUTIONS_PER_DAY = 1.0027378;
   const EARTH_OBLIQUITY = 0.4093;
   const BELDEN_LAT = 40.005997;
