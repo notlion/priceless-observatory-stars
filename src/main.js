@@ -39,6 +39,7 @@ const start = (err, regl) => {
     guiParams[k] = d;
     gui.add(guiParams, k);
   };
+  guiAddBool('Draw Particles', false);
   guiAddBool('Draw Sphere', false);
   guiAddBool('Draw Dome Wireframe', false);
   guiAddFloat('Camera FOV', 38, 10);
@@ -295,8 +296,8 @@ const start = (err, regl) => {
       depth: 1
     });
 
-    // drawParticleSprites();
     drawDome();
+    if (guiParams['Draw Particles']) drawParticleSprites();
     if (guiParams['Draw Dome Wireframe']) drawDomeEdges();
   });
 };
