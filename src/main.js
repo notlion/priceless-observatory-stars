@@ -83,7 +83,7 @@ const start = (err, regl) => {
   const startConnection = () => {
     const ws = new WebSocket("ws://localhost:8080");
     ws.onmessage = event => setDateString(event.data);
-    ws.onclose = () => setTimeout(() => startConnection(), 1);
+    ws.onclose = () => setTimeout(() => startConnection(), 1000);
   };
   startConnection();
 
