@@ -47,6 +47,7 @@ const loadTexture = (regl, url) => {
       mag: 'linear',
     });
   });
+
   return () => tex;
 };
 
@@ -96,6 +97,7 @@ const start = (err, regl) => {
   const DOME_CENTER = [0, 7, 0];
 
   const visibleSkyTexture = loadTexture(regl, 'img/stars_visible_4096.png');
+  const taurusTexture = loadTexture(regl, 'img/taurus_4096.png');
 
   const BLEND_ADDITIVE = {
     enable: true,
@@ -105,11 +107,9 @@ const start = (err, regl) => {
 
   const DEPTH_DISABLED = { enable: false };
 
-  const eyePos = (tick) => {
-    return [params.cameraEyeX,
-            params.cameraEyeY,
-            params.cameraEyeZ];
-  }
+  const eyePos = () => [params.cameraEyeX,
+                        params.cameraEyeY,
+                        params.cameraEyeZ];
   const eyeTargetPos = () => [params.cameraTargetX,
                               params.cameraTargetY,
                               params.cameraTargetZ];
@@ -229,7 +229,7 @@ const start = (err, regl) => {
     uniform vec3 center;
     uniform float time;
     uniform bool drawSphere;
-    uniform sampler2D visibleSkyTex;
+    uniform sampler2D visibleSkyTex, taurusTex;
 
     varying vec3 pos;
 
@@ -242,7 +242,7 @@ const start = (err, regl) => {
       vec2 a = EQUIRECT_RAD_TO_UNIT * vec2(atan(p.z, p.x) + PI, acos(dot(p, vec3(0.0, 1.0, 0.0))));
       vec2 grid = smoothstep(vec2(0.45), vec2(0.5), abs(fract(a * 20.0) - 0.5));
 
-      vec3 c = texture2D(visibleSkyTex, a).rgb;
+      vec3 c = texture2D(visibleSkyTex, a).rgb + texture2D(taurusTex, a).rgb;
       if (drawSphere) {
         c += 0.5 * max(grid.x, grid.y) * mix(vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, 1.0), a.y);
       }
@@ -274,6 +274,7 @@ const start = (err, regl) => {
       center: DOME_CENTER,
       drawSphere: () => params.drawSphere,
       visibleSkyTex: visibleSkyTexture,
+      taurusTex: taurusTexture,
       model: modelMatrix,
       modelViewProj: modelViewProjMatrix,
       orientationInv: ctx => mat3.invert([], orientationMatrix(ctx)),
