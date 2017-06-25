@@ -9,6 +9,7 @@ const params = {
   drawParticles: false,
   drawSphere: false,
   drawDomeWireframe: false,
+  drawConstellation: false,
   constellationOpacity: 1.0,
   twinkleOpacity: 1.0,
   skyOpacity: 1.0,
@@ -40,6 +41,8 @@ const main = () => {
   });
 };
 
+const mix = (a, b, t) => a + (b - a) * t;
+
 const loadTexture = (regl, url, opts) => {
   const img = new Image();
   img.src = url;
@@ -69,6 +72,7 @@ const start = (err, regl) => {
   gui.add(params, 'drawParticles');
   gui.add(params, 'drawSphere');
   gui.add(params, 'drawDomeWireframe');
+  gui.add(params, 'drawConstellation');
   gui.add(params, 'constellationOpacity', 0, 2).step(0.01);
   gui.add(params, 'twinkleOpacity', 0, 2).step(0.01);
   gui.add(params, 'skyOpacity', 0, 2).step(0.01);
@@ -88,11 +92,21 @@ const start = (err, regl) => {
 
   // sample date: "9/23/2007 1730"
   const dateRegex = /(\d+)\/(\d+)\/(\d+) (\d+)/;
+  const dateSecret = '6/30/2017 1430';
 
   let timeDaysInterp = params.timeDays;
+  let constellationOpacityInterp = params.constellationOpacity;
 
-  const setDateString = date => {
-    console.log(dateRegex.exec(date));
+  const setDateString = dateStr => {
+    params.drawConstellation = dateStr === dateSecret;
+
+    const split = dateRegex.exec(dateStr);
+    const m = parseInt(split[1]);
+    const d = parseInt(split[2]);
+    const y = parseInt(split[3]);
+    const t = parseInt(split[4]);
+    const date = new Date(y, m, d, Math.floor(t / 100), t % 60);
+    params.timeDays = date.getTime() / (1000 * 60 * 60 * 24);
   };
 
   const startConnection = () => {
@@ -352,7 +366,7 @@ const start = (err, regl) => {
       visibleSkyTex: visibleSkyTexture,
       taurusTex: taurusTexture,
       randomTex: randomTexture,
-      constellationOpacity: () => params.constellationOpacity,
+      constellationOpacity: () => constellationOpacityInterp,
       twinkleOpacity: () => params.twinkleOpacity,
       skyOpacity: () => params.skyOpacity,
       cloudOpacity: () => params.cloudOpacity,
@@ -414,7 +428,10 @@ const start = (err, regl) => {
       depth: 1
     });
 
-    timeDaysInterp = timeDaysInterp + (params.timeDays - timeDaysInterp) * 0.1;
+    timeDaysInterp = mix(timeDaysInterp, params.timeDays, 0.05);
+    constellationOpacityInterp = mix(constellationOpacityInterp,
+                                     params.drawConstellation ? params.constellationOpacity : 0.0,
+                                     0.05);
 
     drawDome();
     if (params.drawParticles) drawParticleSprites();
