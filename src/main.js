@@ -117,6 +117,7 @@ const start = (err, regl) => {
   startConnection();
 
   const NUM_STARS = STAR_DATA.length / 4;
+  const NUM_SAMPLES = 16;
 
   const particleStates = new Float32Array(STAR_DATA);
   const particleIds = new Float32Array(NUM_STARS);
@@ -171,17 +172,25 @@ const start = (err, regl) => {
     return mat4.invert([], viewProjMatrix(ctx));
   };
 
-  const orientationMatrix = (ctx) => {
+  const orientationQuat = () => {
     const equatorialAngle = EARTH_EQUATORIAL_REVOLUTIONS_PER_DAY * -timeDaysInterp * Math.PI * 2;
-    const equatorial = mat4.fromRotation([], equatorialAngle, [0, 1, 0]);
+    const equatorial = quat.setAxisAngle([], [0, 1, 0], equatorialAngle);
 
     const povAngle = (90 - params.latitude) * DEG_TO_RAD;
-    const pov = mat4.fromRotation([], povAngle, [0, 0, 1]);
+    const pov = quat.setAxisAngle([], [0, 0, 1], povAngle);
 
-    const north = mat4.fromRotation([], params.skyRotationY * DEG_TO_RAD, [0, 1, 0]);
+    const north = quat.setAxisAngle([], [0, 1, 0], params.skyRotationY * DEG_TO_RAD);
 
-    return mat3.fromMat4([], mat4.mul([], north, mat4.mul([], pov, equatorial)));
+    return quat.mul([], north, quat.mul([], pov, equatorial));
   };
+
+  let orientation = orientationQuat();
+  let prevOrientation = quat.clone(orientation);
+
+  const orientationInvMatrix = index => {
+    const q = quat.slerp([], orientation, prevOrientation, index / NUM_SAMPLES);
+    return mat3.fromQuat([], quat.invert([], q));
+  }
 
   const modelMatrix = (ctx) => {
     return mat4.fromRotation([], params.domeRotationY * DEG_TO_RAD, [0, 1, 0]);
@@ -245,7 +254,7 @@ const start = (err, regl) => {
       radius: DOME_RADIUS,
       center: DOME_CENTER,
       modelViewProj: viewProjMatrix,
-      orientation: orientationMatrix,
+      orientation: () => mat3.fromQuat([], orientationQuat),
     },
 
     blend: BLEND_ADDITIVE,
@@ -259,9 +268,11 @@ const start = (err, regl) => {
     frag: `
     #extension GL_EXT_shader_texture_lod : require
 
+    #define NUM_SAMPLES ${NUM_SAMPLES}
+
     precision highp float;
 
-    uniform mat3 orientationInv;
+    uniform mat3 orientationInv[NUM_SAMPLES];
     uniform vec3 center;
     uniform float time, skyTime;
     uniform float constellationOpacity, twinkleOpacity, skyOpacity, cloudOpacity;
@@ -305,36 +316,32 @@ const start = (err, regl) => {
     }
 
     void main() {
-      vec3 p = orientationInv * normalize(pos - center);
-      vec2 a = toPolar(p);
-      vec2 grid = smoothstep(vec2(0.45), vec2(0.5), abs(fract(a * 20.0) - 0.5));
+      vec3 dir = normalize(pos - center);
 
-      vec3 c = skyOpacity * texture2D(visibleSkyTex, a).rgb;
+      vec3 c = vec3(0.0);
 
-      float cloud = sin(fbm4(pos * 1.0 + vec3(time * 0.1, 0.0, 0.0)) * 2.0 * PI);
-      cloud *= cloud;
-      cloud = 1.0 - cloud * cloudOpacity;
-
-      {
-        vec3 twinkle = vec3(0.0);
-        const int NUM_SAMPLES = 8;
-        for (int i = 0; i < NUM_SAMPLES; ++i) {
-          vec4 sd = hash44(vec4(p * 100.0, float(i) + time));
-          vec3 sp = (sd.w * 0.01) * cloud * normalize(sd.xyz * 2.0 - 1.0);
-          sp = normalize(p + sp);
-          vec3 tw = texture2D(visibleSkyTex, toPolar(sp)).rgb;
-          twinkle += tw * tw;
-        }
-        c += twinkle * (twinkleOpacity * (1.0 / float(NUM_SAMPLES)));
+      for (int i = 0; i < NUM_SAMPLES; ++i) {
+        vec2 a = toPolar(orientationInv[i] * dir);
+        c = max(c, skyOpacity * texture2D(visibleSkyTex, a).rgb);
+        // vec4 sd = hash44(vec4(p * 100.0, float(i) + time));
+        // vec3 sp = (sd.w * 0.01) * cloud * normalize(sd.xyz * 2.0 - 1.0);
+        // sp = normalize(p + sp);
+        // vec3 tw = texture2D(visibleSkyTex, toPolar(sp)).rgb;
+        // twinkle += tw * tw;
       }
 
+      vec2 a = toPolar(orientationInv[0] * dir);
       c += constellationOpacity * texture2D(taurusTex, a).rgb;
 
       if (drawSphere) {
+        vec2 grid = smoothstep(vec2(0.45), vec2(0.5), abs(fract(a * 20.0) - 0.5));
         c += 0.5 * max(grid.x, grid.y) * mix(vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, 1.0), a.y);
       }
 
-      c *= cloud;
+      // float cloud = sin(fbm4(pos * 1.0 + vec3(time * 0.1, 0.0, 0.0)) * 2.0 * PI);
+      // cloud *= cloud;
+      // cloud = 1.0 - cloud * cloudOpacity;
+      // c *= cloud;
 
       gl_FragColor = vec4(c, 1.0);
     }`,
@@ -358,22 +365,27 @@ const start = (err, regl) => {
       position: DOME_MESH.vertices
     },
 
-    uniforms: {
-      time: ({tick}) => (tick / 60) % (60 * 60),
-      skyTime: () => timeDaysInterp * (60 * 60 * 24),
-      center: DOME_CENTER,
-      drawSphere: () => params.drawSphere,
-      visibleSkyTex: visibleSkyTexture,
-      taurusTex: taurusTexture,
-      randomTex: randomTexture,
-      constellationOpacity: () => constellationOpacityInterp,
-      twinkleOpacity: () => params.twinkleOpacity,
-      skyOpacity: () => params.skyOpacity,
-      cloudOpacity: () => params.cloudOpacity,
-      model: modelMatrix,
-      modelViewProj: modelViewProjMatrix,
-      orientationInv: ctx => mat3.invert([], orientationMatrix(ctx)),
-    },
+    uniforms: (() => {
+      const u = {
+        time: ({tick}) => (tick / 60) % (60 * 60),
+        skyTime: () => timeDaysInterp * (60 * 60 * 24),
+        center: DOME_CENTER,
+        drawSphere: () => params.drawSphere,
+        visibleSkyTex: visibleSkyTexture,
+        taurusTex: taurusTexture,
+        randomTex: randomTexture,
+        constellationOpacity: () => constellationOpacityInterp,
+        twinkleOpacity: () => params.twinkleOpacity,
+        skyOpacity: () => params.skyOpacity,
+        cloudOpacity: () => params.cloudOpacity,
+        model: modelMatrix,
+        modelViewProj: modelViewProjMatrix,
+      };
+      for (let i = 0; i < NUM_SAMPLES; ++i) {
+        u[`orientationInv[${i}]`] = () => orientationInvMatrix(i);
+      }
+      return u;
+    })(),
 
     blend: BLEND_ADDITIVE,
     depth: DEPTH_DISABLED,
@@ -432,6 +444,9 @@ const start = (err, regl) => {
     constellationOpacityInterp = mix(constellationOpacityInterp,
                                      params.drawConstellation ? params.constellationOpacity : 0.0,
                                      0.05);
+
+    prevOrientation = quat.clone(orientation);
+    orientation = orientationQuat();
 
     drawDome();
     if (params.drawParticles) drawParticleSprites();
