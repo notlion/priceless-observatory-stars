@@ -1,0 +1,19 @@
+{
+  "name": "priceless-observatory-stars",
+  "version": "1.0.0",
+  "main": "src/server.js",
+  "scripts": {
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/notlion/priceless-observatory-stars.git"
+  },
+  "author": "Ryan Alexander",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/notlion/priceless-observatory-stars/issues"
+  },
+  "dependencies": {
+    "ws": "^3.0.0"
+  }
+}
