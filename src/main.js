@@ -9,6 +9,10 @@ const params = {
   drawParticles: false,
   drawSphere: false,
   drawDomeWireframe: false,
+  constellationOpacity: 1.0,
+  twinkleOpacity: 1.0,
+  skyOpacity: 1.0,
+  cloudOpacity: 0.1,
   cameraFOV: 38,
   cameraEyeX: 5.5,
   cameraEyeY: 1.0,
@@ -26,7 +30,8 @@ const params = {
 const main = () => {
   createREGL({
     extensions: [
-      'OES_texture_float'
+      'OES_texture_float',
+      'EXT_shader_texture_lod',
     ],
     attributes: {
       alpha: false
@@ -35,17 +40,23 @@ const main = () => {
   });
 };
 
-const loadTexture = (regl, url) => {
+const loadTexture = (regl, url, opts) => {
   const img = new Image();
   img.src = url;
 
+  const defaults = {
+    data: img,
+    min: 'linear',
+    mag: 'linear',
+  };
+
+  if (opts !== undefined) {
+    for (let k in opts) defaults[k] = opts[k];
+  }
+
   let tex = regl.texture({ data: null, width: 1, height: 1 });
   img.addEventListener('load', () => {
-    tex = regl.texture({
-      data: img,
-      min: 'linear',
-      mag: 'linear',
-    });
+    tex = regl.texture(defaults);
   });
 
   return () => tex;
@@ -58,6 +69,10 @@ const start = (err, regl) => {
   gui.add(params, 'drawParticles');
   gui.add(params, 'drawSphere');
   gui.add(params, 'drawDomeWireframe');
+  gui.add(params, 'constellationOpacity', 0, 2).step(0.01);
+  gui.add(params, 'twinkleOpacity', 0, 2).step(0.01);
+  gui.add(params, 'skyOpacity', 0, 2).step(0.01);
+  gui.add(params, 'cloudOpacity', 0, 1).step(0.01);
   gui.add(params, 'cameraFOV', 10, 50).step(0.01);
   gui.add(params, 'cameraEyeX').step(0.01);
   gui.add(params, 'cameraEyeY').step(0.01);
@@ -71,12 +86,12 @@ const start = (err, regl) => {
   gui.add(params, 'longitude');
   gui.add(params, 'timeDays');
 
+  // sample date: "9/23/2007 1730"
   const dateRegex = /(\d+)\/(\d+)\/(\d+) (\d+)/;
 
   let timeDaysInterp = params.timeDays;
 
   const setDateString = date => {
-    // sample date: "9/23/2007 1730"
     console.log(dateRegex.exec(date));
   };
 
@@ -98,6 +113,11 @@ const start = (err, regl) => {
 
   const visibleSkyTexture = loadTexture(regl, 'img/stars_visible_4096.png');
   const taurusTexture = loadTexture(regl, 'img/taurus_4096.png');
+  const randomTexture = loadTexture(regl, 'img/random.png', {
+    mipmap: true,
+    min: 'linear mipmap linear',
+    wrap: 'repeat',
+  });
 
   const BLEND_ADDITIVE = {
     enable: true,
@@ -223,29 +243,84 @@ const start = (err, regl) => {
 
   const drawDome = regl({
     frag: `
+    #extension GL_EXT_shader_texture_lod : require
+
     precision highp float;
 
     uniform mat3 orientationInv;
     uniform vec3 center;
-    uniform float time;
+    uniform float time, skyTime;
+    uniform float constellationOpacity, twinkleOpacity, skyOpacity, cloudOpacity;
     uniform bool drawSphere;
-    uniform sampler2D visibleSkyTex, taurusTex;
+    uniform sampler2D visibleSkyTex, taurusTex, randomTex;
 
     varying vec3 pos;
 
-    #define PI ${Math.PI}
+    const float PI = ${Math.PI};
+    const vec3 UP = vec3(0.0, 1.0, 0.0);
+    const vec4 HASHSCALE4 = vec4(1031, .1030, .0973, .1099);
+    const vec2 EQUIRECT_RAD_TO_UNIT = 1.0 / vec2(PI * 2.0, PI);
+
+    vec4 hash44(in vec4 p4) {
+      p4 = fract(p4 * HASHSCALE4);
+      p4 += dot(p4, p4.wzxy + 19.19);
+      return fract((p4.xxyz + p4.yzzw) * p4.zywx);
+    }
+
+    float noise(in vec3 x) {
+      vec3 p = floor(x);
+      vec3 f = fract(x);
+      f = f * f * (3.0 - 2.0 * f);
+      vec2 uv = (p.xy + vec2(37.0, 17.0) * p.z) + f.xy;
+      vec2 rg = texture2DLodEXT(randomTex, (uv + 0.5) / 256.0, 0.0).yx;
+      return mix(rg.x, rg.y, f.z);
+    }
+
+    float fbm4(in vec3 p) {
+      const mat3 m = mat3(0.00, 0.80, 0.60, -0.80, 0.36, -0.48, -0.60, -0.48, 0.64);
+      float f = 0.0;
+      f += 0.5000 * noise(p); p = m * p * 2.02;
+      f += 0.2500 * noise(p); p = m * p * 2.03;
+      f += 0.1250 * noise(p); p = m * p * 2.01;
+      f += 0.0625 * noise(p);
+      return f / 0.9375;
+    }
+
+    vec2 toPolar(in vec3 p) {
+      return EQUIRECT_RAD_TO_UNIT * vec2(atan(p.z, p.x) + PI, acos(dot(p, UP)));
+    }
 
     void main() {
-      const vec2 EQUIRECT_RAD_TO_UNIT = 1.0 / vec2(PI * 2.0, PI);
-
       vec3 p = orientationInv * normalize(pos - center);
-      vec2 a = EQUIRECT_RAD_TO_UNIT * vec2(atan(p.z, p.x) + PI, acos(dot(p, vec3(0.0, 1.0, 0.0))));
+      vec2 a = toPolar(p);
       vec2 grid = smoothstep(vec2(0.45), vec2(0.5), abs(fract(a * 20.0) - 0.5));
 
-      vec3 c = texture2D(visibleSkyTex, a).rgb + texture2D(taurusTex, a).rgb;
+      vec3 c = skyOpacity * texture2D(visibleSkyTex, a).rgb;
+
+      float cloud = sin(fbm4(pos * 1.0 + vec3(time * 0.1, 0.0, 0.0)) * 2.0 * PI);
+      cloud *= cloud;
+      cloud = 1.0 - cloud * cloudOpacity;
+
+      {
+        vec3 twinkle = vec3(0.0);
+        const int NUM_SAMPLES = 8;
+        for (int i = 0; i < NUM_SAMPLES; ++i) {
+          vec4 sd = hash44(vec4(p * 100.0, float(i) + time));
+          vec3 sp = (sd.w * 0.01) * cloud * normalize(sd.xyz * 2.0 - 1.0);
+          sp = normalize(p + sp);
+          vec3 tw = texture2D(visibleSkyTex, toPolar(sp)).rgb;
+          twinkle += tw * tw;
+        }
+        c += twinkle * (twinkleOpacity * (1.0 / float(NUM_SAMPLES)));
+      }
+
+      c += constellationOpacity * texture2D(taurusTex, a).rgb;
+
       if (drawSphere) {
         c += 0.5 * max(grid.x, grid.y) * mix(vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, 1.0), a.y);
       }
+
+      c *= cloud;
 
       gl_FragColor = vec4(c, 1.0);
     }`,
@@ -270,11 +345,17 @@ const start = (err, regl) => {
     },
 
     uniforms: {
-      time: ({tick}) => tick / 60,
+      time: ({tick}) => (tick / 60) % (60 * 60),
+      skyTime: () => timeDaysInterp * (60 * 60 * 24),
       center: DOME_CENTER,
       drawSphere: () => params.drawSphere,
       visibleSkyTex: visibleSkyTexture,
       taurusTex: taurusTexture,
+      randomTex: randomTexture,
+      constellationOpacity: () => params.constellationOpacity,
+      twinkleOpacity: () => params.twinkleOpacity,
+      skyOpacity: () => params.skyOpacity,
+      cloudOpacity: () => params.cloudOpacity,
       model: modelMatrix,
       modelViewProj: modelViewProjMatrix,
       orientationInv: ctx => mat3.invert([], orientationMatrix(ctx)),
