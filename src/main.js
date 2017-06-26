@@ -41,30 +41,6 @@ const main = () => {
   });
 };
 
-const mix = (a, b, t) => a + (b - a) * t;
-
-const loadTexture = (regl, url, opts) => {
-  const img = new Image();
-  img.src = url;
-
-  const defaults = {
-    data: img,
-    min: 'linear',
-    mag: 'linear',
-  };
-
-  if (opts !== undefined) {
-    for (let k in opts) defaults[k] = opts[k];
-  }
-
-  let tex = regl.texture({ data: null, width: 1, height: 1 });
-  img.addEventListener('load', () => {
-    tex = regl.texture(defaults);
-  });
-
-  return () => tex;
-};
-
 const start = (err, regl) => {
   const gui = new dat.GUI();
   gui.useLocalStorage = true;
@@ -126,7 +102,7 @@ const start = (err, regl) => {
   const DOME_RADIUS = 5.5;
   const DOME_CENTER = [0, 7, 0];
 
-  const visibleSkyTexture = loadTexture(regl, 'img/stars_visible_4096.png');
+  const visibleSkyTexture = loadCube(regl, 'img/stars_visible_cube_{}.png');
   const taurusTexture = loadTexture(regl, 'img/taurus_4096.png');
   const randomTexture = loadTexture(regl, 'img/random.png', {
     mipmap: true,
@@ -277,7 +253,8 @@ const start = (err, regl) => {
     uniform float time, skyTime;
     uniform float constellationOpacity, twinkleOpacity, skyOpacity, cloudOpacity;
     uniform bool drawSphere;
-    uniform sampler2D visibleSkyTex, taurusTex, randomTex;
+    uniform sampler2D taurusTex, randomTex;
+    uniform samplerCube visibleSkyTex;
 
     varying vec3 pos;
 
@@ -319,16 +296,10 @@ const start = (err, regl) => {
       vec3 dir = normalize(pos - center);
 
       vec3 c = vec3(0.0);
-
       for (int i = 0; i < NUM_SAMPLES; ++i) {
-        vec2 a = toPolar(orientationInv[i] * dir);
-        c = max(c, skyOpacity * texture2D(visibleSkyTex, a).rgb);
-        // vec4 sd = hash44(vec4(p * 100.0, float(i) + time));
-        // vec3 sp = (sd.w * 0.01) * cloud * normalize(sd.xyz * 2.0 - 1.0);
-        // sp = normalize(p + sp);
-        // vec3 tw = texture2D(visibleSkyTex, toPolar(sp)).rgb;
-        // twinkle += tw * tw;
+        c += textureCube(visibleSkyTex, (orientationInv[i] * dir).zyx).rgb;
       }
+      c *= skyOpacity / float(NUM_SAMPLES);
 
       vec2 a = toPolar(orientationInv[0] * dir);
       c += constellationOpacity * texture2D(taurusTex, a).rgb;
@@ -440,7 +411,7 @@ const start = (err, regl) => {
       depth: 1
     });
 
-    timeDaysInterp = mix(timeDaysInterp, params.timeDays, 0.05);
+    timeDaysInterp = mix(timeDaysInterp, params.timeDays, 0.1);
     constellationOpacityInterp = mix(constellationOpacityInterp,
                                      params.drawConstellation ? params.constellationOpacity : 0.0,
                                      0.05);
