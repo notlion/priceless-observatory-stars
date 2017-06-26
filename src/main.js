@@ -71,6 +71,7 @@ const start = (err, regl) => {
   const dateSecret = '6/30/2017 1430';
 
   let timeDaysInterp = params.timeDays;
+  let timeDaysPrev = timeDaysInterp;
   let constellationOpacityInterp = params.constellationOpacity;
 
   const setDateString = dateStr => {
@@ -93,7 +94,7 @@ const start = (err, regl) => {
   startConnection();
 
   const NUM_STARS = STAR_DATA.length / 4;
-  const NUM_SAMPLES = 16;
+  const NUM_SAMPLES = 4;
 
   const particleStates = new Float32Array(STAR_DATA);
   const particleIds = new Float32Array(NUM_STARS);
@@ -148,8 +149,9 @@ const start = (err, regl) => {
     return mat4.invert([], viewProjMatrix(ctx));
   };
 
-  const orientationQuat = () => {
-    const equatorialAngle = EARTH_EQUATORIAL_REVOLUTIONS_PER_DAY * -timeDaysInterp * Math.PI * 2;
+  const orientationQuat = t => {
+    const td = mix(timeDaysInterp, timeDaysPrev, t);
+    const equatorialAngle = EARTH_EQUATORIAL_REVOLUTIONS_PER_DAY * -td * Math.PI * 2;
     const equatorial = quat.setAxisAngle([], [0, 1, 0], equatorialAngle);
 
     const povAngle = (90 - params.latitude) * DEG_TO_RAD;
@@ -160,12 +162,8 @@ const start = (err, regl) => {
     return quat.mul([], north, quat.mul([], pov, equatorial));
   };
 
-  let orientation = orientationQuat();
-  let prevOrientation = quat.clone(orientation);
-
-  const orientationInvMatrix = index => {
-    const q = quat.slerp([], orientation, prevOrientation, index / NUM_SAMPLES);
-    return mat3.fromQuat([], quat.invert([], q));
+  const orientationInvMatrix = i => {
+    return mat3.fromQuat([], quat.invert([], orientationQuat(i / NUM_SAMPLES)));
   }
 
   const modelMatrix = (ctx) => {
@@ -411,13 +409,12 @@ const start = (err, regl) => {
       depth: 1
     });
 
+    timeDaysPrev = timeDaysInterp;
     timeDaysInterp = mix(timeDaysInterp, params.timeDays, 0.1);
+
     constellationOpacityInterp = mix(constellationOpacityInterp,
                                      params.drawConstellation ? params.constellationOpacity : 0.0,
                                      0.05);
-
-    prevOrientation = quat.clone(orientation);
-    orientation = orientationQuat();
 
     drawDome();
     if (params.drawParticles) drawParticleSprites();
