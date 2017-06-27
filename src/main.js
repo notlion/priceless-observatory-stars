@@ -6,14 +6,17 @@ const BELDEN_LON = -121.249132;
 const DEG_TO_RAD = Math.PI / 180;
 
 const params = {
-  drawParticles: false,
   drawSphere: false,
   drawDomeWireframe: false,
   drawConstellation: false,
-  constellationOpacity: 1.0,
-  twinkleOpacity: 1.0,
-  skyOpacity: 1.0,
+
+  constellationOpacity: 1,
+  twinkleOpacity: 1,
+  skyOpacity: 1,
   cloudOpacity: 0.1,
+
+  secretReveal: 0,
+
   cameraFOV: 38,
   cameraEyeX: 5.5,
   cameraEyeY: 1.0,
@@ -21,9 +24,12 @@ const params = {
   cameraTargetX: 3.8,
   cameraTargetY: 10.0,
   cameraTargetZ: 0.0,
+
   domeRotationY: 0.0,
   skyRotationY: 0.0,
+
   timeDays: 0.1,
+
   latitude: BELDEN_LAT,
   longitude: BELDEN_LON,
 };
@@ -45,7 +51,6 @@ const start = (err, regl) => {
   const gui = new dat.GUI();
   gui.useLocalStorage = true;
   gui.remember(params);
-  gui.add(params, 'drawParticles');
   gui.add(params, 'drawSphere');
   gui.add(params, 'drawDomeWireframe');
   gui.add(params, 'drawConstellation');
@@ -53,6 +58,7 @@ const start = (err, regl) => {
   gui.add(params, 'twinkleOpacity', 0, 2).step(0.01);
   gui.add(params, 'skyOpacity', 0, 2).step(0.01);
   gui.add(params, 'cloudOpacity', 0, 1).step(0.01);
+  gui.add(params, 'secretReveal', 0, 1).step(0.01);
   gui.add(params, 'cameraFOV', 10, 50).step(0.01);
   gui.add(params, 'cameraEyeX').step(0.01);
   gui.add(params, 'cameraEyeY').step(0.01);
@@ -93,13 +99,7 @@ const start = (err, regl) => {
   };
   startConnection();
 
-  const NUM_STARS = STAR_DATA.length / 4;
   const NUM_SAMPLES = 4;
-
-  const particleStates = new Float32Array(STAR_DATA);
-  const particleIds = new Float32Array(NUM_STARS);
-  for (let i = 0; i < NUM_STARS; ++i) particleIds[i] = i;
-
   const DOME_RADIUS = 5.5;
   const DOME_CENTER = [0, 7, 0];
 
@@ -174,81 +174,19 @@ const start = (err, regl) => {
     return mat4.mul([], viewProjMatrix(ctx), modelMatrix(ctx));
   };
 
-  const drawParticleSprites = regl({
-    vert: `
-    precision highp float;
-
-    attribute vec4 state;
-    attribute float id;
-
-    varying vec3 color;
-
-    uniform mat4 modelViewProj;
-    uniform mat3 orientation;
-    uniform vec3 center;
-    uniform float time, radius, pointScale;
-
-    float nrand(vec2 n) {
-      return fract(sin(dot(n.xy, vec2(12.9898, 78.233)))* 43758.5453);
-    }
-
-    void main() {
-      vec3 n = orientation * normalize(state.xyz);
-      vec3 p = n * radius;
-
-      float b = state.w * state.w;
-      float rc = nrand(vec2(id, id + 1.0));
-      b *= mix(0.9, 1.0, sin(time * mix(1.0, 10.0, rc) + rc * ${Math.PI * 2}));
-      b *= smoothstep(0.5, 0.6, dot(n, vec3(0.0, 1.0, 0.0)));
-
-      color = vec3(b * 0.005);
-
-      gl_Position = modelViewProj * vec4(center + p, 1.0);
-      gl_PointSize = b * pointScale;
-    }`,
-
-    frag: `
-    precision highp float;
-
-    varying vec3 color;
-
-    void main() {
-      float b = 1.0 - 2.0 * distance(vec2(0.5), gl_PointCoord);
-      gl_FragColor = b * b * b * b * vec4(color, 1.0);
-    }`,
-
-    attributes: {
-      id: particleIds,
-      state: particleStates
-    },
-
-    uniforms: {
-      time: ({tick}) => tick / 60,
-      pointScale: ({pixelRatio}) => pixelRatio * 0.2,
-      radius: DOME_RADIUS,
-      center: DOME_CENTER,
-      modelViewProj: viewProjMatrix,
-      orientation: () => mat3.fromQuat([], orientationQuat),
-    },
-
-    blend: BLEND_ADDITIVE,
-    depth: { enable: false },
-
-    count: NUM_STARS,
-    primitive: 'points'
-  });
-
   const drawDome = regl({
     frag: `
     #extension GL_EXT_shader_texture_lod : require
 
-    #define NUM_SAMPLES ${NUM_SAMPLES}
-
     precision highp float;
+
+    ${SECRET_SHADER_FRAG}
+
+    #define NUM_SAMPLES ${NUM_SAMPLES}
 
     uniform mat3 orientationInv[NUM_SAMPLES];
     uniform vec3 center;
-    uniform float time, skyTime;
+    uniform float time, skyTime, secretReveal;
     uniform float constellationOpacity, twinkleOpacity, skyOpacity, cloudOpacity;
     uniform bool drawSphere;
     uniform sampler2D taurusTex, randomTex;
@@ -258,33 +196,7 @@ const start = (err, regl) => {
 
     const float PI = ${Math.PI};
     const vec3 UP = vec3(0.0, 1.0, 0.0);
-    const vec4 HASHSCALE4 = vec4(1031, .1030, .0973, .1099);
     const vec2 EQUIRECT_RAD_TO_UNIT = 1.0 / vec2(PI * 2.0, PI);
-
-    vec4 hash44(in vec4 p4) {
-      p4 = fract(p4 * HASHSCALE4);
-      p4 += dot(p4, p4.wzxy + 19.19);
-      return fract((p4.xxyz + p4.yzzw) * p4.zywx);
-    }
-
-    float noise(in vec3 x) {
-      vec3 p = floor(x);
-      vec3 f = fract(x);
-      f = f * f * (3.0 - 2.0 * f);
-      vec2 uv = (p.xy + vec2(37.0, 17.0) * p.z) + f.xy;
-      vec2 rg = texture2DLodEXT(randomTex, (uv + 0.5) / 256.0, 0.0).yx;
-      return mix(rg.x, rg.y, f.z);
-    }
-
-    float fbm4(in vec3 p) {
-      const mat3 m = mat3(0.00, 0.80, 0.60, -0.80, 0.36, -0.48, -0.60, -0.48, 0.64);
-      float f = 0.0;
-      f += 0.5000 * noise(p); p = m * p * 2.02;
-      f += 0.2500 * noise(p); p = m * p * 2.03;
-      f += 0.1250 * noise(p); p = m * p * 2.01;
-      f += 0.0625 * noise(p);
-      return f / 0.9375;
-    }
 
     vec2 toPolar(in vec3 p) {
       return EQUIRECT_RAD_TO_UNIT * vec2(atan(p.z, p.x) + PI, acos(dot(p, UP)));
@@ -292,25 +204,31 @@ const start = (err, regl) => {
 
     void main() {
       vec3 dir = normalize(pos - center);
+      vec3 odir = orientationInv[0] * dir;
 
       vec3 c = vec3(0.0);
-      for (int i = 0; i < NUM_SAMPLES; ++i) {
-        c += textureCube(visibleSkyTex, (orientationInv[i] * dir).zyx).rgb;
+
+      if (odir.y < secretReveal * 2.0 - 1.0) {
+        c = secret_render(dir, time);
       }
-      c *= skyOpacity / float(NUM_SAMPLES);
+      else {
+        // Render Sky
 
-      vec2 a = toPolar(orientationInv[0] * dir);
-      c += constellationOpacity * texture2D(taurusTex, a).rgb;
+        for (int i = 0; i < NUM_SAMPLES; ++i) {
+          c += textureCube(visibleSkyTex, (orientationInv[i] * dir).zyx).rgb;
+        }
+        c *= skyOpacity / float(NUM_SAMPLES);
 
-      if (drawSphere) {
-        vec2 grid = smoothstep(vec2(0.45), vec2(0.5), abs(fract(a * 20.0) - 0.5));
-        c += 0.5 * max(grid.x, grid.y) * mix(vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, 1.0), a.y);
+        vec2 a = toPolar(odir);
+        c += constellationOpacity * texture2D(taurusTex, a).rgb;
+
+        if (drawSphere) {
+          vec2 grid = smoothstep(vec2(0.45), vec2(0.5), abs(fract(a * 20.0) - 0.5));
+          c += 0.5 * max(grid.x, grid.y) * mix(vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, 1.0), a.y);
+        }
       }
 
-      // float cloud = sin(fbm4(pos * 1.0 + vec3(time * 0.1, 0.0, 0.0)) * 2.0 * PI);
-      // cloud *= cloud;
-      // cloud = 1.0 - cloud * cloudOpacity;
-      // c *= cloud;
+      c *= smoothstep(0.52, 0.62, dir.y);
 
       gl_FragColor = vec4(c, 1.0);
     }`,
@@ -347,6 +265,7 @@ const start = (err, regl) => {
         twinkleOpacity: () => params.twinkleOpacity,
         skyOpacity: () => params.skyOpacity,
         cloudOpacity: () => params.cloudOpacity,
+        secretReveal: () => params.secretReveal,
         model: modelMatrix,
         modelViewProj: modelViewProjMatrix,
       };
@@ -417,7 +336,6 @@ const start = (err, regl) => {
                                      0.05);
 
     drawDome();
-    if (params.drawParticles) drawParticleSprites();
     if (params.drawDomeWireframe) drawDomeEdges();
   });
 };
