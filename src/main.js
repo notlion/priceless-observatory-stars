@@ -79,6 +79,7 @@ const start = (err, regl) => {
   let timeDaysInterp = params.timeDays;
   let timeDaysPrev = timeDaysInterp;
   let constellationOpacityInterp = params.constellationOpacity;
+  let secretRevealInterp = params.secretReveal;
 
   const setDateString = dateStr => {
     params.drawConstellation = dateStr === dateSecret;
@@ -204,11 +205,10 @@ const start = (err, regl) => {
 
     void main() {
       vec3 dir = normalize(pos - center);
-      vec3 odir = orientationInv[0] * dir;
 
       vec3 c = vec3(0.0);
 
-      if (odir.y < secretReveal * 2.0 - 1.0) {
+      if (length(dir.xz) < secretReveal) {
         c = secret_render(dir, time);
       }
       else {
@@ -219,6 +219,7 @@ const start = (err, regl) => {
         }
         c *= skyOpacity / float(NUM_SAMPLES);
 
+        vec3 odir = orientationInv[0] * dir;
         vec2 a = toPolar(odir);
         c += constellationOpacity * texture2D(taurusTex, a).rgb;
 
@@ -265,7 +266,7 @@ const start = (err, regl) => {
         twinkleOpacity: () => params.twinkleOpacity,
         skyOpacity: () => params.skyOpacity,
         cloudOpacity: () => params.cloudOpacity,
-        secretReveal: () => params.secretReveal,
+        secretReveal: () => secretRevealInterp,
         model: modelMatrix,
         modelViewProj: modelViewProjMatrix,
       };
@@ -329,11 +330,13 @@ const start = (err, regl) => {
     });
 
     timeDaysPrev = timeDaysInterp;
-    timeDaysInterp = mix(timeDaysInterp, params.timeDays, 0.1);
+    timeDaysInterp = mix(timeDaysInterp, params.timeDays, 0.01);
 
     constellationOpacityInterp = mix(constellationOpacityInterp,
                                      params.drawConstellation ? params.constellationOpacity : 0.0,
                                      0.05);
+
+    secretRevealInterp = mix(secretRevealInterp, params.secretReveal, 0.01);
 
     drawDome();
     if (params.drawDomeWireframe) drawDomeEdges();
