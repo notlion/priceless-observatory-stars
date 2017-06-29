@@ -92,6 +92,7 @@ const start = (err, regl) => {
 
   let constellationOpacityInterp = params.constellationOpacity;
   let secretRevealInterp = params.fractalSecretReveal;
+  let orientationSpeed = 0.0;
 
   const setDateString = dateStr => {
     params.timeDays = parseDateDays(dateStr);
@@ -341,7 +342,11 @@ const start = (err, regl) => {
     });
 
     orientationInterpPrev = orientationInterp;
-    orientationInterp = quat.slerp([], orientationInterpPrev, orientationQuat(), 0.02);
+    const nextOrientation = orientationQuat();
+    const nextOriDiff = quat.mul([], orientationInterp, quat.invert([], nextOrientation));
+    const angle = quat.getAxisAngle([], nextOriDiff) / (Math.PI * 2);
+    orientationSpeed = mix(orientationSpeed, Math.min(angle, 1 - angle) * 0.1, 0.01);
+    orientationInterp = quat.slerp([], orientationInterpPrev, nextOrientation, orientationSpeed);
 
     constellationOpacityInterp = mix(constellationOpacityInterp,
                                      params.drawConstellation ? params.constellationOpacity : 0.0,
