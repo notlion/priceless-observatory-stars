@@ -13,9 +13,9 @@ const params = {
   constellationOpacity: 1,
   twinkleOpacity: 1,
   skyOpacity: 1,
-  cloudOpacity: 0.1,
+  skyBlack: 0.02,
 
-  secretReveal: 0,
+  fractalSecretReveal: 0,
 
   cameraFOV: 38,
   cameraEyeX: 5.5,
@@ -57,8 +57,8 @@ const start = (err, regl) => {
   gui.add(params, 'constellationOpacity', 0, 2).step(0.01);
   gui.add(params, 'twinkleOpacity', 0, 2).step(0.01);
   gui.add(params, 'skyOpacity', 0, 2).step(0.01);
-  gui.add(params, 'cloudOpacity', 0, 1).step(0.01);
-  gui.add(params, 'secretReveal', 0, 1).step(0.01);
+  gui.add(params, 'skyBlack', 0, 0.1).step(0.001);
+  gui.add(params, 'fractalSecretReveal', 0, 1).step(0.01);
   gui.add(params, 'cameraFOV', 10, 50).step(0.01);
   gui.add(params, 'cameraEyeX').step(0.01);
   gui.add(params, 'cameraEyeY').step(0.01);
@@ -68,29 +68,35 @@ const start = (err, regl) => {
   gui.add(params, 'cameraTargetZ').step(0.01);
   gui.add(params, 'domeRotationY');
   gui.add(params, 'skyRotationY');
-  gui.add(params, 'latitude');
-  gui.add(params, 'longitude');
+  gui.add(params, 'latitude', -90, 90).step(0.1);
+  gui.add(params, 'longitude', -180, 180).step(0.1);
   gui.add(params, 'timeDays');
 
   // sample date: "9/23/2007 1730"
   const dateRegex = /(\d+)\/(\d+)\/(\d+) (\d+)/;
-  const dateSecret = '6/30/2017 1430';
 
-  let timeDaysInterp = params.timeDays;
-  let timeDaysPrev = timeDaysInterp;
-  let constellationOpacityInterp = params.constellationOpacity;
-  let secretRevealInterp = params.secretReveal;
-
-  const setDateString = dateStr => {
-    params.drawConstellation = dateStr === dateSecret;
-
+  const parseDateDays = (dateStr) => {
     const split = dateRegex.exec(dateStr);
     const m = parseInt(split[1]);
     const d = parseInt(split[2]);
     const y = parseInt(split[3]);
     const t = parseInt(split[4]);
     const date = new Date(y, m, d, Math.floor(t / 100), t % 60);
-    params.timeDays = date.getTime() / (1000 * 60 * 60 * 24);
+    return date.getTime() / (1000 * 60 * 60 * 24);
+  };
+
+  // December 21st, 2567, 11:00 pm (23:00)
+  const constellationSecretTimeDays = parseDateDays('12/21/2567 2300');
+  console.log('constellation', constellationSecretTimeDays)
+  const fractalSecretTimeDays = parseDateDays('6/30/2017 1430');
+
+  let constellationOpacityInterp = params.constellationOpacity;
+  let secretRevealInterp = params.fractalSecretReveal;
+
+  const setDateString = dateStr => {
+    params.timeDays = parseDateDays(dateStr);
+    params.drawConstellation = params.timeDays === constellationSecretTimeDays;
+    params.fractalSecretReveal = params.timeDays === fractalSecretTimeDays ? 1.0 : 0.0;
   };
 
   const startConnection = () => {
@@ -150,10 +156,11 @@ const start = (err, regl) => {
     return mat4.invert([], viewProjMatrix(ctx));
   };
 
-  const orientationQuat = t => {
-    const td = mix(timeDaysInterp, timeDaysPrev, t);
-    const equatorialAngle = EARTH_EQUATORIAL_REVOLUTIONS_PER_DAY * -td * Math.PI * 2;
-    const equatorial = quat.setAxisAngle([], [0, 1, 0], equatorialAngle);
+  const orientationQuat = () => {
+    const unitLongitude = params.longitude / 180;
+    const revolutions = EARTH_EQUATORIAL_REVOLUTIONS_PER_DAY * params.timeDays;
+    const equatorialAngle = (revolutions * 2 + unitLongitude) * Math.PI;
+    const equatorial = quat.setAxisAngle([], [0, 1, 0], -equatorialAngle);
 
     const povAngle = (90 - params.latitude) * DEG_TO_RAD;
     const pov = quat.setAxisAngle([], [0, 0, 1], povAngle);
@@ -163,8 +170,12 @@ const start = (err, regl) => {
     return quat.mul([], north, quat.mul([], pov, equatorial));
   };
 
+  let orientationInterp = orientationQuat();
+  let orientationInterpPrev = quat.clone(orientationInterp);
+
   const orientationInvMatrix = i => {
-    return mat3.fromQuat([], quat.invert([], orientationQuat(i / NUM_SAMPLES)));
+    const t = i / NUM_SAMPLES;
+    return mat3.fromQuat([], quat.invert([], quat.slerp([], orientationInterp, orientationInterpPrev, t)));
   }
 
   const modelMatrix = (ctx) => {
@@ -187,8 +198,8 @@ const start = (err, regl) => {
 
     uniform mat3 orientationInv[NUM_SAMPLES];
     uniform vec3 center;
-    uniform float time, skyTime, secretReveal;
-    uniform float constellationOpacity, twinkleOpacity, skyOpacity, cloudOpacity;
+    uniform float time, fractalSecretReveal;
+    uniform float constellationOpacity, twinkleOpacity, skyOpacity, skyBlack;
     uniform bool drawSphere;
     uniform sampler2D taurusTex, randomTex;
     uniform samplerCube visibleSkyTex;
@@ -208,7 +219,7 @@ const start = (err, regl) => {
 
       vec3 c = vec3(0.0);
 
-      if (length(dir.xz) < secretReveal) {
+      if (length(dir.xz) < fractalSecretReveal) {
         c = secret_render(dir, time);
       }
       else {
@@ -217,7 +228,8 @@ const start = (err, regl) => {
         for (int i = 0; i < NUM_SAMPLES; ++i) {
           c += textureCube(visibleSkyTex, (orientationInv[i] * dir).zyx).rgb;
         }
-        c *= skyOpacity / float(NUM_SAMPLES);
+        c *= 1.0 / float(NUM_SAMPLES);
+        c = (c - skyBlack) * skyOpacity;
 
         vec3 odir = orientationInv[0] * dir;
         vec2 a = toPolar(odir);
@@ -256,7 +268,6 @@ const start = (err, regl) => {
     uniforms: (() => {
       const u = {
         time: ({tick}) => (tick / 60) % (60 * 60),
-        skyTime: () => timeDaysInterp * (60 * 60 * 24),
         center: DOME_CENTER,
         drawSphere: () => params.drawSphere,
         visibleSkyTex: visibleSkyTexture,
@@ -264,9 +275,9 @@ const start = (err, regl) => {
         randomTex: randomTexture,
         constellationOpacity: () => constellationOpacityInterp,
         twinkleOpacity: () => params.twinkleOpacity,
-        skyOpacity: () => params.skyOpacity,
-        cloudOpacity: () => params.cloudOpacity,
-        secretReveal: () => secretRevealInterp,
+        skyOpacity: () => params.skyOpacity * (1.0 / (1.0 - params.skyBlack)),
+        skyBlack: () => params.skyBlack,
+        fractalSecretReveal: () => secretRevealInterp,
         model: modelMatrix,
         modelViewProj: modelViewProjMatrix,
       };
@@ -329,14 +340,14 @@ const start = (err, regl) => {
       depth: 1
     });
 
-    timeDaysPrev = timeDaysInterp;
-    timeDaysInterp = mix(timeDaysInterp, params.timeDays, 0.01);
+    orientationInterpPrev = orientationInterp;
+    orientationInterp = quat.slerp([], orientationInterpPrev, orientationQuat(), 0.02);
 
     constellationOpacityInterp = mix(constellationOpacityInterp,
                                      params.drawConstellation ? params.constellationOpacity : 0.0,
                                      0.05);
 
-    secretRevealInterp = mix(secretRevealInterp, params.secretReveal, 0.01);
+    secretRevealInterp = mix(secretRevealInterp, params.fractalSecretReveal, 0.02);
 
     drawDome();
     if (params.drawDomeWireframe) drawDomeEdges();
