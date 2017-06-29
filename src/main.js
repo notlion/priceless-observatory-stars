@@ -160,7 +160,7 @@ const start = (err, regl) => {
   const orientationQuat = () => {
     const unitLongitude = params.longitude / 180;
     const revolutions = EARTH_EQUATORIAL_REVOLUTIONS_PER_DAY * params.timeDays;
-    const equatorialAngle = (revolutions * 2 + unitLongitude) * Math.PI;
+    const equatorialAngle = (revolutions * 2 - unitLongitude) * Math.PI;
     const equatorial = quat.setAxisAngle([], [0, 1, 0], -equatorialAngle);
 
     const povAngle = (90 - params.latitude) * DEG_TO_RAD;
