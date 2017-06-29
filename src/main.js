@@ -112,6 +112,7 @@ const start = (err, regl) => {
   const DOME_CENTER = [0, 7, 0];
 
   const visibleSkyTexture = loadCube(regl, 'img/stars_visible_cube_{}.png');
+  const xraySkyTexture = loadCube(regl, 'img/stars_xray_cube_{}.png');
   const taurusTexture = loadTexture(regl, 'img/taurus_4096.png');
   const randomTexture = loadTexture(regl, 'img/random.png', {
     mipmap: true,
@@ -203,7 +204,7 @@ const start = (err, regl) => {
     uniform float constellationOpacity, twinkleOpacity, skyOpacity, skyBlack;
     uniform bool drawSphere;
     uniform sampler2D taurusTex, randomTex;
-    uniform samplerCube visibleSkyTex;
+    uniform samplerCube skyTex;
 
     varying vec3 pos;
 
@@ -227,7 +228,7 @@ const start = (err, regl) => {
         // Render Sky
 
         for (int i = 0; i < NUM_SAMPLES; ++i) {
-          c += textureCube(visibleSkyTex, (orientationInv[i] * dir).zyx).rgb;
+          c += textureCube(skyTex, (orientationInv[i] * dir).zyx).rgb;
         }
         c *= 1.0 / float(NUM_SAMPLES);
         c = (c - skyBlack) * skyOpacity;
@@ -271,7 +272,7 @@ const start = (err, regl) => {
         time: ({tick}) => (tick / 60) % (60 * 60),
         center: DOME_CENTER,
         drawSphere: () => params.drawSphere,
-        visibleSkyTex: visibleSkyTexture,
+        skyTex: visibleSkyTexture,
         taurusTex: taurusTexture,
         randomTex: randomTexture,
         constellationOpacity: () => constellationOpacityInterp,
